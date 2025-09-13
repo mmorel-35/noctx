@@ -3,6 +3,8 @@ package http_autofix
 import (
 	"context"
 	"net/http"
+	"strings"
+	"testing"
 )
 
 func simpleCase() {
@@ -13,15 +15,23 @@ func simpleCase() {
 }
 
 func withExistingContext(ctx context.Context) {
-	// This should be auto-fixed to use the existing context parameter
+	// This should be auto-fixed to use the existing context parameter  
 	req, _ := http.NewRequest("POST", "https://example.com", nil) // want `net/http\.NewRequest must not be called. use net/http\.NewRequestWithContext`
 	
 	_ = req
 }
 
-func testFunction(t interface{ Context() context.Context }) {
+func testFunction(t *testing.T) {
 	// This should be auto-fixed to use t.Context()
 	req, _ := http.NewRequest("PUT", "https://example.com", nil) // want `net/http\.NewRequest must not be called. use net/http\.NewRequestWithContext`
+	
+	_ = req
+}
+
+func withStringBody() {
+	// This should preserve the body parameter  
+	body := "test data"
+	req, _ := http.NewRequest("POST", "https://example.com", strings.NewReader(body)) // want `net/http\.NewRequest must not be called. use net/http\.NewRequestWithContext`
 	
 	_ = req
 }

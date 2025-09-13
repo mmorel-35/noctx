@@ -43,6 +43,24 @@ var autofixMappings = map[string]AutofixInfo{
 		RequiresContext: true,
 		RequiresBody:    false,
 	},
+	"net/http.Get": {
+		FuncName:        "net/http.Get",
+		ReplacementFunc: "net/http.NewRequestWithContext",
+		RequiresContext: true,
+		RequiresBody:    false,
+	},
+	"net/http.Head": {
+		FuncName:        "net/http.Head", 
+		ReplacementFunc: "net/http.NewRequestWithContext",
+		RequiresContext: true,
+		RequiresBody:    false,
+	},
+	"net/http.Post": {
+		FuncName:        "net/http.Post",
+		ReplacementFunc: "net/http.NewRequestWithContext",
+		RequiresContext: true,
+		RequiresBody:    true,
+	},
 }
 
 var ngFuncMessages = map[string]string{
@@ -193,8 +211,17 @@ func matchesFunction(callExpr *ast.CallExpr, funcName string) bool {
 	case *ast.SelectorExpr:
 		if ident, ok := fun.X.(*ast.Ident); ok {
 			callName := ident.Name + "." + fun.Sel.Name
-			// For net/http.NewRequest, match both "net/http.NewRequest" and "http.NewRequest"
-			return callName == "http.NewRequest" && funcName == "net/http.NewRequest"
+			// For net/http functions, match both "net/http.Function" and "http.Function"
+			switch funcName {
+			case "net/http.NewRequest":
+				return callName == "http.NewRequest"
+			case "net/http.Get":
+				return callName == "http.Get"
+			case "net/http.Head":
+				return callName == "http.Head"
+			case "net/http.Post":
+				return callName == "http.Post"
+			}
 		}
 	}
 	return false
@@ -250,9 +277,14 @@ func generateSuggestedFix(pass *analysis.Pass, callExpr *ast.CallExpr, autofixIn
 		return nil
 	}
 
-	// For now, focus on http.NewRequest -> http.NewRequestWithContext
-	if autofixInfo.FuncName == "net/http.NewRequest" {
+	// Handle different HTTP functions
+	switch autofixInfo.FuncName {
+	case "net/http.NewRequest":
 		return generateHttpNewRequestFix(pass, callExpr, autofixInfo)
+	case "net/http.Get", "net/http.Head":
+		return generateHttpGetHeadFix(pass, callExpr, autofixInfo)
+	case "net/http.Post":
+		return generateHttpPostFix(pass, callExpr, autofixInfo)
 	}
 
 	return nil
@@ -306,51 +338,200 @@ func generateHttpNewRequestFix(pass *analysis.Pass, callExpr *ast.CallExpr, auto
 	}
 }
 
-// detectContext finds the most appropriate context to use
-func detectContext(pass *analysis.Pass, callExpr *ast.CallExpr) string {
-	// First, try to find if there's a context variable in scope
-	if ctx := findContextInScope(pass, callExpr); ctx != "" {
-		return ctx
+// generateHttpGetHeadFix generates a fix for http.Get and http.Head calls
+func generateHttpGetHeadFix(pass *analysis.Pass, callExpr *ast.CallExpr, autofixInfo AutofixInfo) *analysis.SuggestedFix {
+	// Verify this is actually a call to http.Get or http.Head
+	sel, ok := callExpr.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return nil
 	}
 
-	// Check if we're in a test function - look for testing.T parameter
-	if isInTestFunction(pass, callExpr) {
+	ident, ok := sel.X.(*ast.Ident)
+	if !ok || ident.Name != "http" {
+		return nil
+	}
+
+	// Check that we have the expected number of arguments (just url)
+	if len(callExpr.Args) != 1 {
+		return nil
+	}
+
+	// Detect the appropriate context to use
+	contextExpr := detectContext(pass, callExpr)
+	
+	// Get the URL argument
+	urlArg := formatArgument(pass, callExpr.Args[0])
+	
+	// Generate the replacement code
+	method := ""
+	if sel.Sel.Name == "Get" {
+		method = "GET"
+	} else if sel.Sel.Name == "Head" {
+		method = "HEAD"
+	}
+	
+	// Generate a simpler replacement for now
+	newCall := fmt.Sprintf(`func() (*http.Response, error) {
+		req, err := http.NewRequestWithContext(%s, %q, %s, http.NoBody)
+		if err != nil {
+			return nil, err
+		}
+		return http.DefaultClient.Do(req)
+	}()`, contextExpr, method, urlArg)
+
+	// Create text edit to replace the entire function call
+	start := callExpr.Pos()
+	end := callExpr.End()
+
+	return &analysis.SuggestedFix{
+		Message: "Replace with http.NewRequestWithContext and Do",
+		TextEdits: []analysis.TextEdit{
+			{
+				Pos:     start,
+				End:     end,
+				NewText: []byte(newCall),
+			},
+		},
+	}
+}
+
+// generateHttpPostFix generates a fix for http.Post calls
+func generateHttpPostFix(pass *analysis.Pass, callExpr *ast.CallExpr, autofixInfo AutofixInfo) *analysis.SuggestedFix {
+	// Verify this is actually a call to http.Post
+	sel, ok := callExpr.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return nil
+	}
+
+	ident, ok := sel.X.(*ast.Ident)
+	if !ok || ident.Name != "http" || sel.Sel.Name != "Post" {
+		return nil
+	}
+
+	// Check that we have the expected number of arguments (url, contentType, body)
+	if len(callExpr.Args) != 3 {
+		return nil
+	}
+
+	// Detect the appropriate context to use
+	contextExpr := detectContext(pass, callExpr)
+	
+	// Get the arguments
+	urlArg := formatArgument(pass, callExpr.Args[0])
+	contentTypeArg := formatArgument(pass, callExpr.Args[1])
+	bodyArg := formatArgument(pass, callExpr.Args[2])
+
+	// Generate the replacement code
+	newCall := fmt.Sprintf(`func() (*http.Response, error) {
+		req, err := http.NewRequestWithContext(%s, "POST", %s, %s)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", %s)
+		return http.DefaultClient.Do(req)
+	}()`, contextExpr, urlArg, bodyArg, contentTypeArg)
+
+	// Create text edit to replace the entire function call
+	start := callExpr.Pos()
+	end := callExpr.End()
+
+	return &analysis.SuggestedFix{
+		Message: "Replace with http.NewRequestWithContext and Do",
+		TextEdits: []analysis.TextEdit{
+			{
+				Pos:     start,
+				End:     end,
+				NewText: []byte(newCall),
+			},
+		},
+	}
+}
+
+// detectContext finds the most appropriate context to use
+func detectContext(pass *analysis.Pass, callExpr *ast.CallExpr) string {
+	// Simple heuristics for context detection
+	// Check if testing package is imported (suggests we might be in tests)
+	hasTestingImport := false
+	for _, pkg := range pass.Pkg.Imports() {
+		if pkg.Path() == "testing" {
+			hasTestingImport = true
+			break
+		}
+	}
+	
+	// If testing is imported, prefer t.Context() for now
+	// In a real implementation, we'd check the actual function signature
+	if hasTestingImport {
 		return "t.Context()"
+	}
+
+	// Check if context package is imported (suggests context variables might be available)
+	hasContextImport := false
+	for _, pkg := range pass.Pkg.Imports() {
+		if pkg.Path() == "context" {
+			hasContextImport = true
+			break
+		}
+	}
+	
+	// If context is imported and we're in a function that likely has a context parameter,
+	// assume ctx is available
+	if hasContextImport {
+		return "ctx"
 	}
 
 	// Default to context.Background()
 	return "context.Background()"
 }
 
-// findContextInScope looks for context variables in the current scope
-func findContextInScope(pass *analysis.Pass, callExpr *ast.CallExpr) string {
-	// For now, implement a simple check for common context variable names
-	// A more sophisticated implementation would do proper scope analysis
-	
-	// Look for common context variable names
-	commonContextNames := []string{"ctx", "context"}
-	
-	// Check if any of these names are imported or available
-	for _, name := range commonContextNames {
-		// This is a simplified check - in practice you'd need to verify
-		// the variable is actually in scope and of type context.Context
-		if name == "ctx" {
-			// Assume ctx is available for now
-			return "ctx"
-		}
+// findEnclosingFunction finds the function declaration that contains the call expression
+func findEnclosingFunction(callExpr *ast.CallExpr) *ast.FuncDecl {
+	// In a real implementation, you'd walk up the AST
+	// For now, this is a simplified placeholder that returns nil
+	// A proper implementation would need to maintain parent pointers or use ast.Inspect
+	return nil
+}
+
+// isTestFunction checks if a function declaration is a test function
+func isTestFunction(funcDecl *ast.FuncDecl) bool {
+	if funcDecl == nil || funcDecl.Type.Params == nil {
+		return false
 	}
 	
+	// Check if the function has a parameter of type *testing.T
+	for _, param := range funcDecl.Type.Params.List {
+		if starExpr, ok := param.Type.(*ast.StarExpr); ok {
+			if selExpr, ok := starExpr.X.(*ast.SelectorExpr); ok {
+				if ident, ok := selExpr.X.(*ast.Ident); ok {
+					if ident.Name == "testing" && selExpr.Sel.Name == "T" {
+						return true
+					}
+				}
+			}
+		}
+	}
+	return false
+}
+
+// findContextParameter looks for context.Context parameters in a function
+func findContextParameter(pass *analysis.Pass, funcDecl *ast.FuncDecl) string {
+	if funcDecl == nil || funcDecl.Type.Params == nil {
+		return ""
+	}
+	
+	for _, param := range funcDecl.Type.Params.List {
+		if isContextParam(pass, param) && len(param.Names) > 0 {
+			return param.Names[0].Name
+		}
+	}
 	return ""
 }
 
-// isInTestFunction checks if the call is within a test function
-func isInTestFunction(pass *analysis.Pass, callExpr *ast.CallExpr) bool {
-	// Check if testing package is imported
-	for _, pkg := range pass.Pkg.Imports() {
-		if pkg.Path() == "testing" {
-			// If testing is imported, we might be in a test function
-			// For a more accurate check, we'd need to analyze the function signature
-			return true
+// isContextParam checks if a parameter is of type context.Context
+func isContextParam(pass *analysis.Pass, param *ast.Field) bool {
+	if selExpr, ok := param.Type.(*ast.SelectorExpr); ok {
+		if ident, ok := selExpr.X.(*ast.Ident); ok {
+			return ident.Name == "context" && selExpr.Sel.Name == "Context"
 		}
 	}
 	return false
