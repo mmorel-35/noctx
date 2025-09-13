@@ -13,6 +13,7 @@ func TestAutofixAnalyzer(t *testing.T) {
 	}{
 		{desc: "http_autofix"},
 		{desc: "http_get_test"},
+		{desc: "net_autofix"},
 	}
 
 	for _, test := range testCases {

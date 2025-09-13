@@ -3,6 +3,7 @@ package fixes
 import (
 	"go/ast"
 	"go/token"
+	"go/types"
 
 	"golang.org/x/tools/go/analysis"
 )
@@ -18,6 +19,11 @@ type ContextDetector struct{}
 
 // DetectContext finds the most appropriate context expression to use
 func (cd *ContextDetector) DetectContext(pass *analysis.Pass, callExpr *ast.CallExpr) string {
+	// First, try to find a context variable in the current function scope
+	if contextVar := cd.findContextVariable(pass, callExpr); contextVar != "" {
+		return contextVar
+	}
+
 	// Check if testing package is imported
 	hasTestingImport := false
 	for _, pkg := range pass.Pkg.Imports() {
@@ -41,8 +47,7 @@ func (cd *ContextDetector) DetectContext(pass *analysis.Pass, callExpr *ast.Call
 		}
 	}
 	
-	// If context is imported, assume ctx is available
-	// TODO: Improve this by actually analyzing function parameters
+	// If context is imported, assume ctx is available as a common pattern
 	if hasContextImport {
 		return "ctx"
 	}
@@ -51,14 +56,101 @@ func (cd *ContextDetector) DetectContext(pass *analysis.Pass, callExpr *ast.Call
 	return "context.Background()"
 }
 
+// findContextVariable searches for context variables in the current function scope
+func (cd *ContextDetector) findContextVariable(pass *analysis.Pass, callExpr *ast.CallExpr) string {
+	// Walk up the AST to find the containing function
+	var containingFunc *ast.FuncDecl
+	
+	// Find the function that contains this call expression
+	ast.Inspect(pass.Files[0], func(n ast.Node) bool {
+		if funcDecl, ok := n.(*ast.FuncDecl); ok {
+			// Check if callExpr is within this function
+			if callExpr.Pos() >= funcDecl.Pos() && callExpr.End() <= funcDecl.End() {
+				containingFunc = funcDecl
+				return false // Found it, stop walking
+			}
+		}
+		return true
+	})
+
+	if containingFunc == nil {
+		return ""
+	}
+
+	// Check function parameters for context
+	if containingFunc.Type.Params != nil {
+		for _, param := range containingFunc.Type.Params.List {
+			if cd.isContextType(pass, param.Type) && len(param.Names) > 0 {
+				return param.Names[0].Name
+			}
+		}
+	}
+
+	// TODO: Check local variables declared within the function
+	// This would require more sophisticated AST walking
+
+	return ""
+}
+
+// isContextType checks if a type expression represents context.Context
+func (cd *ContextDetector) isContextType(pass *analysis.Pass, expr ast.Expr) bool {
+	switch t := expr.(type) {
+	case *ast.SelectorExpr:
+		// Check for context.Context
+		if ident, ok := t.X.(*ast.Ident); ok {
+			return ident.Name == "context" && t.Sel.Name == "Context"
+		}
+	case *ast.Ident:
+		// Check if it's an aliased context type
+		if obj := pass.TypesInfo.ObjectOf(t); obj != nil {
+			if named, ok := obj.Type().(*types.Named); ok {
+				return named.String() == "context.Context"
+			}
+		}
+	}
+	return false
+}
+
 // VariableAssignmentDetector detects whether to use := or = for variable assignments
 type VariableAssignmentDetector struct{}
 
 // DetectAssignmentOperator determines whether to use := or = based on context
 func (vad *VariableAssignmentDetector) DetectAssignmentOperator(pass *analysis.Pass, callExpr *ast.CallExpr, varNames ...string) string {
-	// TODO: Implement logic to detect if variables are already declared
-	// For now, default to := (declaration assignment)
-	return ":="
+	// Check if variables are already declared in the current scope
+	// Walk up to find containing function or block
+	containingScope := vad.findContainingScope(pass, callExpr)
+	if containingScope == nil {
+		return ":=" // Default to declaration assignment
+	}
+
+	// Check if any of the specified variables are already declared
+	allDeclared := true
+	for _, varName := range varNames {
+		if !vad.isVariableDeclared(pass, containingScope, varName) {
+			allDeclared = false
+			break
+		}
+	}
+
+	if allDeclared {
+		return "=" // All variables are declared, use assignment
+	} else {
+		return ":=" // At least one variable needs declaration
+	}
+}
+
+// findContainingScope finds the scope that contains the call expression
+func (vad *VariableAssignmentDetector) findContainingScope(pass *analysis.Pass, callExpr *ast.CallExpr) *types.Scope {
+	// This is a simplified implementation
+	// In a more robust version, we'd walk the AST to find the exact scope
+	return pass.Pkg.Scope()
+}
+
+// isVariableDeclared checks if a variable is declared in the given scope
+func (vad *VariableAssignmentDetector) isVariableDeclared(pass *analysis.Pass, scope *types.Scope, varName string) bool {
+	// Check if variable exists in scope
+	obj := scope.Lookup(varName)
+	return obj != nil
 }
 
 // ArgumentFormatter helps format AST expressions back to source code
