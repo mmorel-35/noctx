@@ -1,109 +1,71 @@
-# noctx Rules Documentation
+# noctx Rules
 
-This document describes all the rules implemented by the `noctx` analyzer. The analyzer detects functions that should use `context.Context` but don't, and provides automated fixes for them.
+The `noctx` analyzer detects functions that should use `context.Context` but don't, and provides automated fixes for them.
 
-## Overview
+## Supported Functions
 
-The `noctx` analyzer identifies 21 functions across 4 packages that lack proper context support and provides suggested fixes to modernize the code.
+### Package-level Functions with Autofix
 
-## HTTP Package Rules
+#### HTTP Package (5 functions)
+- **`http.Get`** → Use `http.NewRequestWithContext` + `http.Client.Do`
+- **`http.Head`** → Use `http.NewRequestWithContext` + `http.Client.Do`  
+- **`http.Post`** → Use `http.NewRequestWithContext` + `http.Client.Do`
+- **`http.PostForm`** → Use `http.NewRequestWithContext` + `http.Client.Do`
+- **`http.NewRequest`** → Use `http.NewRequestWithContext`
 
-### http.Get
-**Problem**: `http.Get` doesn't accept a context parameter.  
-**Solution**: Replace with `http.NewRequestWithContext` + `http.Client.Do`  
-**Method Preservation**: Uses `http.MethodGet` constant  
+#### Network Package (13 functions)
+- **`net.Dial`** → Use `(*net.Dialer).DialContext`
+- **`net.DialTimeout`** → Use `(*net.Dialer).DialContext` with timeout
+- **`net.Listen`** → Use `(*net.ListenConfig).Listen`
+- **`net.ListenPacket`** → Use `(*net.ListenConfig).ListenPacket`
 
-### http.Head  
-**Problem**: `http.Head` doesn't accept a context parameter.  
-**Solution**: Replace with `http.NewRequestWithContext` + `http.Client.Do`  
-**Method Preservation**: Uses `http.MethodHead` constant  
+##### DNS Lookup Functions (9 functions)
+- **`net.LookupCNAME`** → Use `(*net.Resolver).LookupCNAME`
+- **`net.LookupHost`** → Use `(*net.Resolver).LookupHost`
+- **`net.LookupIP`** → Use `(*net.Resolver).LookupIPAddr`
+- **`net.LookupPort`** → Use `(*net.Resolver).LookupPort`
+- **`net.LookupSRV`** → Use `(*net.Resolver).LookupSRV`
+- **`net.LookupMX`** → Use `(*net.Resolver).LookupMX`
+- **`net.LookupNS`** → Use `(*net.Resolver).LookupNS`
+- **`net.LookupTXT`** → Use `(*net.Resolver).LookupTXT`
+- **`net.LookupAddr`** → Use `(*net.Resolver).LookupAddr`
 
-### http.Post
-**Problem**: `http.Post` doesn't accept a context parameter.  
-**Solution**: Replace with `http.NewRequestWithContext` + `http.Client.Do`  
-**Method Preservation**: Uses `http.MethodPost` constant  
+#### Exec Package (1 function)
+- **`os/exec.Command`** → Use `exec.CommandContext`
 
-### http.PostForm
-**Problem**: `http.PostForm` doesn't accept a context parameter.  
-**Solution**: Replace with `http.NewRequestWithContext` + `http.Client.Do` with form encoding  
-**Method Preservation**: Uses `http.MethodPost` constant  
+#### TLS Package (2 functions)
+- **`crypto/tls.Dial`** → Use `(*tls.Dialer).DialContext`
+- **`crypto/tls.DialWithDialer`** → Use `(*tls.Dialer).DialContext`
 
-### http.NewRequest
-**Problem**: `http.NewRequest` doesn't accept a context parameter.  
-**Solution**: Replace with `http.NewRequestWithContext`  
-**Body Optimization**: Replaces `nil` body with `http.NoBody`  
+### Method Functions (Detection Only)
 
-## Network Package Rules
+The following method functions are detected but don't have autofix support yet:
 
-### net.Dial
-**Problem**: `net.Dial` doesn't accept a context parameter.  
-**Solution**: Replace with `(*net.Dialer).DialContext`  
+#### HTTP Client Methods (4 methods)
+- `(*net/http.Client).Get`
+- `(*net/http.Client).Head`
+- `(*net/http.Client).Post`
+- `(*net/http.Client).PostForm`
 
-### net.DialTimeout  
-**Problem**: `net.DialTimeout` doesn't accept a context parameter.  
-**Solution**: Replace with `(*net.Dialer).DialContext` with timeout configuration  
+#### Database/SQL Methods (16 methods)
+- `(*database/sql.DB).Begin`, `.Exec`, `.Ping`, `.Prepare`, `.Query`, `.QueryRow`
+- `(*database/sql.Tx).Exec`, `.Prepare`, `.Query`, `.QueryRow`, `.Stmt`
+- `(*database/sql.Stmt).Exec`, `.Query`, `.QueryRow`
 
-### net.Listen
-**Problem**: `net.Listen` doesn't accept a context parameter.  
-**Solution**: Replace with `(*net.ListenConfig).Listen`  
-
-### net.ListenPacket
-**Problem**: `net.ListenPacket` doesn't accept a context parameter.  
-**Solution**: Replace with `(*net.ListenConfig).ListenPacket`  
-
-### Lookup Functions (9 functions)
-All lookup functions lack context support:
-- `net.LookupCNAME` → `(*net.Resolver).LookupCNAME`
-- `net.LookupHost` → `(*net.Resolver).LookupHost`  
-- `net.LookupIP` → `(*net.Resolver).LookupIPAddr`
-- `net.LookupPort` → `(*net.Resolver).LookupPort`
-- `net.LookupSRV` → `(*net.Resolver).LookupSRV`
-- `net.LookupMX` → `(*net.Resolver).LookupMX`
-- `net.LookupNS` → `(*net.Resolver).LookupNS`
-- `net.LookupTXT` → `(*net.Resolver).LookupTXT`
-- `net.LookupAddr` → `(*net.Resolver).LookupAddr`
-
-## Exec Package Rules
-
-### os/exec.Command
-**Problem**: `os/exec.Command` doesn't accept a context parameter.  
-**Solution**: Replace with `exec.CommandContext`  
-
-## TLS Package Rules
-
-### crypto/tls.Dial
-**Problem**: `crypto/tls.Dial` doesn't accept a context parameter.  
-**Solution**: Replace with `(*tls.Dialer).DialContext`  
-
-### crypto/tls.DialWithDialer
-**Problem**: `crypto/tls.DialWithDialer` doesn't accept a context parameter.  
-**Solution**: Replace with `(*tls.Dialer).DialContext` with NetDialer configuration  
-
-## Context Detection Strategy
-
-The analyzer uses intelligent context detection:
-
-1. **Function Parameters**: Analyzes function signature for existing `context.Context` parameters
-2. **Test Functions**: Uses `t.Context()` when `testing` package is imported  
-3. **Available Variables**: Uses existing context variables (e.g., `ctx`) when available
-4. **Default Fallback**: Uses `context.Background()` when no context is available
-
-## Variable Assignment Intelligence
-
-The analyzer determines whether to use `:=` or `=` based on variable scope analysis:
-- Uses `:=` when variables need to be declared
-- Uses `=` when variables are already declared in the current scope
+#### TLS Methods (1 method)
+- `(*crypto/tls.Conn).Handshake`
 
 ## Examples
 
-### HTTP Get Transformation
+### HTTP Function Transformations
+
 ```go
-// Before
+// Before: http.Get
 resp, err := http.Get("https://example.com")
 
-// After (in test function)
+// After: Autofix applied
 resp, err := func() (*http.Response, error) {
-    req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://example.com", http.NoBody)
+    req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://example.com", http.NoBody)
     if err != nil {
         return nil, err
     }
@@ -111,30 +73,48 @@ resp, err := func() (*http.Response, error) {
 }()
 ```
 
-### Network Dial Transformation
 ```go
-// Before  
-conn, err := net.Dial("tcp", "localhost:8080")
-
-// After (with existing context parameter)
-conn, err := func() (net.Conn, error) {
-    dialer := &net.Dialer{}
-    return dialer.DialContext(ctx, "tcp", "localhost:8080")
-}()
-```
-
-### HTTP NewRequest Transformation
-```go
-// Before
+// Before: http.NewRequest
 req, err := http.NewRequest("GET", "https://example.com", nil)
 
-// After 
+// After: Autofix applied
 req, err := http.NewRequestWithContext(context.Background(), "GET", "https://example.com", http.NoBody)
 ```
 
-## Usage
+### Network Function Transformations
 
-The analyzer integrates with standard Go tooling:
+```go
+// Before: net.Dial
+conn, err := net.Dial("tcp", "localhost:8080")
+
+// After: Autofix applied
+conn, err := func() (net.Conn, error) {
+    dialer := &net.Dialer{}
+    return dialer.DialContext(context.Background(), "tcp", "localhost:8080")
+}()
+```
+
+```go
+// Before: net.LookupHost
+hosts, err := net.LookupHost("example.com")
+
+// After: Autofix applied
+hosts, err := func() ([]string, error) {
+    resolver := &net.Resolver{}
+    return resolver.LookupHost(context.Background(), "example.com")
+}()
+```
+
+## Context Detection
+
+The analyzer intelligently detects the most appropriate context to use:
+
+1. **Function Parameters**: Uses existing `context.Context` parameters in function signatures
+2. **Test Functions**: Uses `t.Context()` when `testing` package is imported
+3. **Available Variables**: Uses existing context variables (e.g., `ctx`) when available  
+4. **Default Fallback**: Uses `context.Background()` when no context is available
+
+## Usage
 
 ### With go vet
 ```bash
@@ -154,4 +134,4 @@ Then run:
 golangci-lint run
 ```
 
-Suggested fixes appear in LSP-compatible editors and can be applied automatically, making it easy to modernize code to use proper context handling.
+Suggested fixes appear in LSP-compatible editors and can be applied automatically.

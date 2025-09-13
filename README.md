@@ -6,7 +6,7 @@
 
 Passing `context.Context` enables library users to cancel requests, get trace information and so on.
 
-`noctx` helps you identify code that could be rewritten to use context.Context and provides automatic suggested fixes for 21 functions across HTTP, network, exec, and TLS packages.
+`noctx` helps you identify code that could be rewritten to use context.Context and provides automatic suggested fixes for many functions across HTTP, network, exec, and TLS packages.
 
 ## Features
 
@@ -18,13 +18,20 @@ Passing `context.Context` enables library users to cancel requests, get trace in
 
 ## Supported Functions
 
-`noctx` provides autofix support for 21 functions across 4 packages:
-- **HTTP (5 functions)**: `Get`, `Head`, `Post`, `PostForm`, `NewRequest`
-- **Network (13 functions)**: `Dial`, `DialTimeout`, `Listen`, `ListenPacket`, and all 9 `Lookup*` functions
-- **Exec (1 function)**: `Command`
-- **TLS (2 functions)**: `Dial`, `DialWithDialer`
+`noctx` provides comprehensive detection and autofix support for functions across multiple packages:
 
-For detailed information about all supported functions and their transformations, see [Rules Documentation](docs/rules.md).
+- **HTTP (5 functions)**: `Get`, `Head`, `Post`, `PostForm`, `NewRequest` with autofix
+- **Network (13 functions)**: `Dial`, `DialTimeout`, `Listen`, `ListenPacket`, and all 9 `Lookup*` functions with autofix  
+- **Exec (1 function)**: `Command` with autofix
+- **TLS (2 functions)**: `Dial`, `DialWithDialer` with autofix
+- **Additional Methods**: HTTP Client, Database/SQL, and TLS method detection (autofix coming soon)
+
+For complete details about all supported functions and their transformations, see our [**Rules Documentation**](docs/rules.md).
+
+## Documentation
+
+- **[Rules Documentation](docs/rules.md)** - Complete list of supported functions with examples
+- **[Developer Documentation](docs/developer.md)** - Technical implementation details for contributors
 
 ## Usage
 

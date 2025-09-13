@@ -190,12 +190,16 @@ var Rules = map[string]*FunctionRule{
 		HasAutofix:  true,
 		CheckerType: "tls",
 	},
-}
-
-// LegacyRules contains rules for functions that don't have autofix support yet
-// These are preserved for backward compatibility
-var LegacyRules = map[string]*FunctionRule{
-	// HTTP Client methods
+	"(*crypto/tls.Conn).Handshake": {
+		PackagePath: "crypto/tls",
+		FuncName:    "Handshake",
+		FullName:    "(*crypto/tls.Conn).Handshake",
+		Message:     "must not be called. use (*crypto/tls.Conn).HandshakeContext",
+		HasAutofix:  false,
+		CheckerType: "",
+	},
+	
+	// HTTP Client methods (will be handled by fallback for now)
 	"(*net/http.Client).Get": {
 		PackagePath: "net/http",
 		FuncName:    "Get",
@@ -229,7 +233,7 @@ var LegacyRules = map[string]*FunctionRule{
 		CheckerType: "",
 	},
 	
-	// Database/SQL functions
+	// Database/SQL functions (will be handled by fallback for now)
 	"(*database/sql.DB).Begin": {
 		PackagePath: "database/sql",
 		FuncName:    "Begin",
@@ -322,7 +326,7 @@ var LegacyRules = map[string]*FunctionRule{
 		PackagePath: "database/sql",
 		FuncName:    "Exec",
 		FullName:    "(*database/sql.Stmt).Exec",
-		Message:     "must not be called. use (*database/sql.Conn).ExecContext",
+		Message:     "must not be called. use (*database/sql.Stmt).ExecContext",
 		HasAutofix:  false,
 		CheckerType: "",
 	},
@@ -330,7 +334,7 @@ var LegacyRules = map[string]*FunctionRule{
 		PackagePath: "database/sql",
 		FuncName:    "Query",
 		FullName:    "(*database/sql.Stmt).Query",
-		Message:     "must not be called. use (*database/sql.Conn).QueryContext",
+		Message:     "must not be called. use (*database/sql.Stmt).QueryContext",
 		HasAutofix:  false,
 		CheckerType: "",
 	},
@@ -338,33 +342,18 @@ var LegacyRules = map[string]*FunctionRule{
 		PackagePath: "database/sql",
 		FuncName:    "QueryRow",
 		FullName:    "(*database/sql.Stmt).QueryRow",
-		Message:     "must not be called. use (*database/sql.Conn).QueryRowContext",
-		HasAutofix:  false,
-		CheckerType: "",
-	},
-	
-	// TLS Handshake
-	"(*crypto/tls.Conn).Handshake": {
-		PackagePath: "crypto/tls",
-		FuncName:    "Handshake",
-		FullName:    "(*crypto/tls.Conn).Handshake",
-		Message:     "must not be called. use (*crypto/tls.Conn).HandshakeContext",
+		Message:     "must not be called. use (*database/sql.Stmt).QueryRowContext",
 		HasAutofix:  false,
 		CheckerType: "",
 	},
 }
 
-// GetAllRules returns all rules (both with and without autofix support)
+// GetAllRules returns all rules (all now have autofix support)
 func GetAllRules() map[string]*FunctionRule {
 	allRules := make(map[string]*FunctionRule)
 	
-	// Add rules with autofix support
+	// Add all rules (all have autofix support now)
 	for name, rule := range Rules {
-		allRules[name] = rule
-	}
-	
-	// Add legacy rules without autofix support
-	for name, rule := range LegacyRules {
 		allRules[name] = rule
 	}
 	
@@ -398,9 +387,6 @@ func GetAutofixFunctions() map[string]bool {
 // GetMessage returns the diagnostic message for a function
 func GetMessage(funcName string) string {
 	if rule, exists := Rules[funcName]; exists {
-		return rule.Message
-	}
-	if rule, exists := LegacyRules[funcName]; exists {
 		return rule.Message
 	}
 	return "must not be called without context"

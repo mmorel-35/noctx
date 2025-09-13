@@ -127,27 +127,29 @@ func TestFormatDiagnostic(t *testing.T) {
 }
 
 func TestRuleConsistency(t *testing.T) {
-	// Test that Rules and LegacyRules don't have overlapping keys
-	for name := range registry.Rules {
-		if _, exists := registry.LegacyRules[name]; exists {
-			t.Errorf("Function %s exists in both Rules and LegacyRules", name)
+	// Test that all functions now have proper configuration
+	allRules := registry.GetAllRules()
+	
+	// Count functions with and without autofix
+	autofixCount := 0
+	for _, rule := range allRules {
+		if rule.HasAutofix && rule.CheckerType != "" {
+			autofixCount++
 		}
 	}
 	
-	// Test that all Rules have autofix set to true
+	// We should have functions with autofix support
+	if autofixCount == 0 {
+		t.Error("Expected at least some functions to have autofix support")
+	}
+	
+	// Test that Rules entries have proper configuration when they have autofix
 	for name, rule := range registry.Rules {
-		if !rule.HasAutofix {
-			t.Errorf("Rule %s should have HasAutofix=true", name)
+		if rule.HasAutofix && rule.CheckerType == "" {
+			t.Errorf("Rule %s has autofix but no CheckerType", name)
 		}
-		if rule.CheckerType == "" {
-			t.Errorf("Rule %s should have a CheckerType", name)
-		}
-	}
-	
-	// Test that all LegacyRules have autofix set to false
-	for name, rule := range registry.LegacyRules {
-		if rule.HasAutofix {
-			t.Errorf("Legacy rule %s should have HasAutofix=false", name)
+		if !rule.HasAutofix && rule.CheckerType != "" {
+			t.Errorf("Rule %s has CheckerType but no autofix", name)
 		}
 	}
 }
