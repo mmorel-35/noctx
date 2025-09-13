@@ -11,7 +11,7 @@ import (
 	"golang.org/x/tools/go/analysis/passes/inspect"
 
 	"github.com/sonatard/noctx/internal/checkers"
-	"github.com/sonatard/noctx/internal/diagnostics"
+	"github.com/sonatard/noctx/internal/registry"
 )
 
 // Analyzer defines the noctx analyzer
@@ -30,12 +30,7 @@ var Analyzer = &analysis.Analyzer{
 
 func Run(pass *analysis.Pass) (interface{}, error) {
 	// Use consolidated checkers for functions with autofix support
-	autofixCheckers := []checkers.Checker{
-		&checkers.HTTPChecker{},
-		&checkers.NetChecker{},
-		&checkers.ExecChecker{},
-		&checkers.TLSChecker{},
-	}
+	autofixCheckers := checkers.GetAllCheckers()
 
 	for _, checker := range autofixCheckers {
 		if err := checker.Check(pass); err != nil {
@@ -54,32 +49,19 @@ func Run(pass *analysis.Pass) (interface{}, error) {
 
 // runFallbackChecks provides backward compatibility for functions not yet fully supported by the consolidated checkers
 func runFallbackChecks(pass *analysis.Pass) error {
-	// List of functions that have autofix support (to skip in fallback)
-	autofixSupportedFuncs := map[string]bool{
-		"net/http.NewRequest": true,
-		"net/http.Get":        true,
-		"net/http.Head":       true,
-		"net/http.Post":       true,
-		"net/http.PostForm":   true,
-		"net.Dial":            true,
-		"net.DialTimeout":     true,
-		"net.Listen":          true,
-		"net.ListenPacket":    true,
-		"net.LookupCNAME":     true,
-		"net.LookupHost":      true,
-		"net.LookupIP":        true,
-		"net.LookupPort":      true,
-		"net.LookupSRV":       true,
-		"net.LookupMX":        true,
-		"net.LookupNS":        true,
-		"net.LookupTXT":       true,
-		"net.LookupAddr":      true,
-		"os/exec.Command":     true,
-		"crypto/tls.Dial":     true,
-		"crypto/tls.DialWithDialer": true,
+	// Get autofix functions from registry
+	autofixSupportedFuncs := registry.GetAutofixFunctions()
+
+	// Get all rules (including legacy ones)
+	allRules := registry.GetAllRules()
+	
+	// Extract function names for typeFuncs
+	allFuncNames := make([]string, 0, len(allRules))
+	for name := range allRules {
+		allFuncNames = append(allFuncNames, name)
 	}
 
-	ngFuncs := typeFuncs(pass, slices.Collect(maps.Keys(diagnostics.Messages)))
+	ngFuncs := typeFuncs(pass, allFuncNames)
 	if len(ngFuncs) == 0 {
 		return nil
 	}
@@ -102,7 +84,7 @@ func runFallbackChecks(pass *analysis.Pass) error {
 						}
 						
 						// Report violation without autofix for unsupported functions
-						pass.Reportf(instr.Pos(), "%s", diagnostics.FormatDiagnostic(funcName))
+						pass.Reportf(instr.Pos(), "%s", registry.FormatDiagnostic(funcName))
 						break
 					}
 				}

@@ -3,57 +3,12 @@ package checkers
 import (
 	"fmt"
 	"go/ast"
-	"strings"
 
 	"golang.org/x/tools/go/analysis"
 
 	"github.com/sonatard/noctx/internal/fixes"
+	"github.com/sonatard/noctx/internal/registry"
 )
-
-// ExecChecker handles os/exec package functions that need context
-type ExecChecker struct {
-	contextDetector *fixes.ContextDetector
-	argFormatter    *fixes.ArgumentFormatter
-	assignDetector  *fixes.VariableAssignmentDetector
-}
-
-// Check performs the analysis for exec functions
-func (c *ExecChecker) Check(pass *analysis.Pass) error {
-	if c.contextDetector == nil {
-		c.contextDetector = &fixes.ContextDetector{}
-	}
-	if c.argFormatter == nil {
-		c.argFormatter = &fixes.ArgumentFormatter{}
-	}
-	if c.assignDetector == nil {
-		c.assignDetector = &fixes.VariableAssignmentDetector{}
-	}
-
-	functions := []FunctionConfig{
-		{"os/exec", "Command", c.generateExecCommandFix},
-	}
-
-	httpChecker := &HTTPChecker{c.contextDetector, c.argFormatter, c.assignDetector}
-	return httpChecker.checkFunctions(pass, functions)
-}
-
-func (c *ExecChecker) generateExecCommandFix(pass *analysis.Pass, callExpr *ast.CallExpr, contextExpr string) *analysis.SuggestedFix {
-	if len(callExpr.Args) == 0 {
-		return nil
-	}
-
-	args := make([]string, len(callExpr.Args))
-	for i, arg := range callExpr.Args {
-		args[i] = c.argFormatter.FormatArgument(pass, arg)
-	}
-	
-	allArgs := append([]string{contextExpr}, args...)
-	argList := strings.Join(allArgs, ", ")
-
-	newCall := fmt.Sprintf("exec.CommandContext(%s)", argList)
-
-	return fixes.CreateSuggestedFix("Replace with exec.CommandContext", callExpr, newCall)
-}
 
 // TLSChecker handles crypto/tls package functions that need context
 type TLSChecker struct {
@@ -62,16 +17,28 @@ type TLSChecker struct {
 	assignDetector  *fixes.VariableAssignmentDetector
 }
 
+// NewTLSChecker creates a new TLS checker instance
+func NewTLSChecker() *TLSChecker {
+	return &TLSChecker{
+		contextDetector: &fixes.ContextDetector{},
+		argFormatter:    &fixes.ArgumentFormatter{},
+		assignDetector:  &fixes.VariableAssignmentDetector{},
+	}
+}
+
+// Name returns the name of this checker
+func (c *TLSChecker) Name() CheckerName {
+	return TLSCheckerName
+}
+
 // Check performs the analysis for TLS functions
 func (c *TLSChecker) Check(pass *analysis.Pass) error {
-	if c.contextDetector == nil {
-		c.contextDetector = &fixes.ContextDetector{}
-	}
-	if c.argFormatter == nil {
-		c.argFormatter = &fixes.ArgumentFormatter{}
-	}
-	if c.assignDetector == nil {
-		c.assignDetector = &fixes.VariableAssignmentDetector{}
+	// Get TLS rules from registry
+	rulesByChecker := registry.GetRulesByChecker()
+	tlsRules := rulesByChecker[TLSCheckerName]
+	
+	if len(tlsRules) == 0 {
+		return nil // No TLS rules to process
 	}
 
 	functions := []FunctionConfig{
@@ -79,7 +46,7 @@ func (c *TLSChecker) Check(pass *analysis.Pass) error {
 		{"crypto/tls", "DialWithDialer", c.generateTLSDialWithDialerFix},
 	}
 
-	httpChecker := &HTTPChecker{c.contextDetector, c.argFormatter, c.assignDetector}
+	httpChecker := NewHTTPChecker()
 	return httpChecker.checkFunctions(pass, functions)
 }
 

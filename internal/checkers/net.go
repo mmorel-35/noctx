@@ -8,6 +8,7 @@ import (
 	"golang.org/x/tools/go/analysis"
 
 	"github.com/sonatard/noctx/internal/fixes"
+	"github.com/sonatard/noctx/internal/registry"
 )
 
 // NetChecker handles all net package functions that need context
@@ -17,16 +18,28 @@ type NetChecker struct {
 	assignDetector  *fixes.VariableAssignmentDetector
 }
 
+// NewNetChecker creates a new Net checker instance
+func NewNetChecker() *NetChecker {
+	return &NetChecker{
+		contextDetector: &fixes.ContextDetector{},
+		argFormatter:    &fixes.ArgumentFormatter{},
+		assignDetector:  &fixes.VariableAssignmentDetector{},
+	}
+}
+
+// Name returns the name of this checker
+func (c *NetChecker) Name() CheckerName {
+	return NetCheckerName
+}
+
 // Check performs the analysis for all net functions
 func (c *NetChecker) Check(pass *analysis.Pass) error {
-	if c.contextDetector == nil {
-		c.contextDetector = &fixes.ContextDetector{}
-	}
-	if c.argFormatter == nil {
-		c.argFormatter = &fixes.ArgumentFormatter{}
-	}
-	if c.assignDetector == nil {
-		c.assignDetector = &fixes.VariableAssignmentDetector{}
+	// Get Net rules from registry
+	rulesByChecker := registry.GetRulesByChecker()
+	netRules := rulesByChecker[NetCheckerName]
+	
+	if len(netRules) == 0 {
+		return nil // No Net rules to process
 	}
 
 	// Define all net functions we handle
@@ -46,7 +59,7 @@ func (c *NetChecker) Check(pass *analysis.Pass) error {
 		{"net", "LookupAddr", c.generateNetLookupFix},
 	}
 
-	httpChecker := &HTTPChecker{c.contextDetector, c.argFormatter, c.assignDetector}
+	httpChecker := NewHTTPChecker()
 	return httpChecker.checkFunctions(pass, functions)
 }
 

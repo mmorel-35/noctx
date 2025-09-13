@@ -13,7 +13,6 @@ import (
 	"golang.org/x/tools/go/analysis/passes/inspect"
 	"golang.org/x/tools/go/ast/inspector"
 
-	"github.com/sonatard/noctx/internal/diagnostics"
 	"github.com/sonatard/noctx/internal/fixes"
 )
 
@@ -22,6 +21,20 @@ type HTTPChecker struct {
 	contextDetector *fixes.ContextDetector
 	argFormatter    *fixes.ArgumentFormatter
 	assignDetector  *fixes.VariableAssignmentDetector
+}
+
+// NewHTTPChecker creates a new HTTP checker instance
+func NewHTTPChecker() *HTTPChecker {
+	return &HTTPChecker{
+		contextDetector: &fixes.ContextDetector{},
+		argFormatter:    &fixes.ArgumentFormatter{},
+		assignDetector:  &fixes.VariableAssignmentDetector{},
+	}
+}
+
+// Name returns the name of this checker
+func (c *HTTPChecker) Name() CheckerName {
+	return HTTPCheckerName
 }
 
 // FunctionConfig defines how to handle a specific function
@@ -33,16 +46,6 @@ type FunctionConfig struct {
 
 // Check performs the analysis for all HTTP functions
 func (c *HTTPChecker) Check(pass *analysis.Pass) error {
-	if c.contextDetector == nil {
-		c.contextDetector = &fixes.ContextDetector{}
-	}
-	if c.argFormatter == nil {
-		c.argFormatter = &fixes.ArgumentFormatter{}
-	}
-	if c.assignDetector == nil {
-		c.assignDetector = &fixes.VariableAssignmentDetector{}
-	}
-
 	// Define all HTTP functions we handle
 	functions := []FunctionConfig{
 		{"net/http", "Get", c.generateHTTPGetFix},
@@ -53,6 +56,21 @@ func (c *HTTPChecker) Check(pass *analysis.Pass) error {
 	}
 
 	return c.checkFunctions(pass, functions)
+}
+
+// getHTTPMessage returns the diagnostic message for HTTP functions
+func (c *HTTPChecker) getHTTPMessage(funcName string) string {
+	messages := map[string]string{
+		"net/http.Get":        "must not be called. use net/http.NewRequestWithContext and (*net/http.Client).Do(*http.Request)",
+		"net/http.Head":       "must not be called. use net/http.NewRequestWithContext and (*net/http.Client).Do(*http.Request)",
+		"net/http.Post":       "must not be called. use net/http.NewRequestWithContext and (*net/http.Client).Do(*http.Request)",
+		"net/http.PostForm":   "must not be called. use net/http.NewRequestWithContext and (*net/http.Client).Do(*http.Request)",
+		"net/http.NewRequest": "must not be called. use net/http.NewRequestWithContext",
+	}
+	if msg, exists := messages[funcName]; exists {
+		return funcName + " " + msg
+	}
+	return funcName + " must not be called without context"
 }
 
 // checkFunctions is the shared logic for checking multiple functions
@@ -108,7 +126,7 @@ func (c *HTTPChecker) checkFunctions(pass *analysis.Pass, functions []FunctionCo
 							if suggestedFix != nil {
 								pass.Report(analysis.Diagnostic{
 									Pos:            instr.Pos(),
-									Message:        diagnostics.FormatDiagnostic(funcName),
+									Message:        c.getHTTPMessage(funcName),
 									SuggestedFixes: []analysis.SuggestedFix{*suggestedFix},
 								})
 								continue
@@ -116,7 +134,7 @@ func (c *HTTPChecker) checkFunctions(pass *analysis.Pass, functions []FunctionCo
 						}
 						
 						// Fallback to regular reporting
-						pass.Reportf(instr.Pos(), "%s", diagnostics.FormatDiagnostic(funcName))
+						pass.Reportf(instr.Pos(), "%s", c.getHTTPMessage(funcName))
 					}
 				}
 			}

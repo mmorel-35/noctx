@@ -8,6 +8,9 @@ import (
 type Checker interface {
 	// Check performs the analysis and reports violations
 	Check(pass *analysis.Pass) error
+	
+	// Name returns the name of this checker
+	Name() CheckerName
 }
 
 // CheckerName represents the type of checker
@@ -21,12 +24,15 @@ const (
 	TLSCheckerName  CheckerName = "tls"
 )
 
-// Registry holds all available checkers
-var Registry = map[CheckerName]func() Checker{
-	HTTPCheckerName: func() Checker { return &HTTPChecker{} },
-	NetCheckerName:  func() Checker { return &NetChecker{} },
-	ExecCheckerName: func() Checker { return &ExecChecker{} },
-	TLSCheckerName:  func() Checker { return &TLSChecker{} },
+// CheckerFactory creates a new instance of a checker
+type CheckerFactory func() Checker
+
+// Registry holds all available checker factories
+var Registry = map[CheckerName]CheckerFactory{
+	HTTPCheckerName: func() Checker { return NewHTTPChecker() },
+	NetCheckerName:  func() Checker { return NewNetChecker() },
+	ExecCheckerName: func() Checker { return NewExecChecker() },
+	TLSCheckerName:  func() Checker { return NewTLSChecker() },
 }
 
 // GetAllCheckers returns instances of all available checkers
@@ -36,4 +42,12 @@ func GetAllCheckers() []Checker {
 		checkers = append(checkers, factory())
 	}
 	return checkers
+}
+
+// GetChecker returns a new instance of the specified checker
+func GetChecker(name CheckerName) Checker {
+	if factory, exists := Registry[name]; exists {
+		return factory()
+	}
+	return nil
 }
