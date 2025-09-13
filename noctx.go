@@ -484,59 +484,6 @@ func detectContext(pass *analysis.Pass, callExpr *ast.CallExpr) string {
 	return "context.Background()"
 }
 
-// findEnclosingFunction finds the function declaration that contains the call expression
-func findEnclosingFunction(callExpr *ast.CallExpr) *ast.FuncDecl {
-	// In a real implementation, you'd walk up the AST
-	// For now, this is a simplified placeholder that returns nil
-	// A proper implementation would need to maintain parent pointers or use ast.Inspect
-	return nil
-}
-
-// isTestFunction checks if a function declaration is a test function
-func isTestFunction(funcDecl *ast.FuncDecl) bool {
-	if funcDecl == nil || funcDecl.Type.Params == nil {
-		return false
-	}
-	
-	// Check if the function has a parameter of type *testing.T
-	for _, param := range funcDecl.Type.Params.List {
-		if starExpr, ok := param.Type.(*ast.StarExpr); ok {
-			if selExpr, ok := starExpr.X.(*ast.SelectorExpr); ok {
-				if ident, ok := selExpr.X.(*ast.Ident); ok {
-					if ident.Name == "testing" && selExpr.Sel.Name == "T" {
-						return true
-					}
-				}
-			}
-		}
-	}
-	return false
-}
-
-// findContextParameter looks for context.Context parameters in a function
-func findContextParameter(pass *analysis.Pass, funcDecl *ast.FuncDecl) string {
-	if funcDecl == nil || funcDecl.Type.Params == nil {
-		return ""
-	}
-	
-	for _, param := range funcDecl.Type.Params.List {
-		if isContextParam(pass, param) && len(param.Names) > 0 {
-			return param.Names[0].Name
-		}
-	}
-	return ""
-}
-
-// isContextParam checks if a parameter is of type context.Context
-func isContextParam(pass *analysis.Pass, param *ast.Field) bool {
-	if selExpr, ok := param.Type.(*ast.SelectorExpr); ok {
-		if ident, ok := selExpr.X.(*ast.Ident); ok {
-			return ident.Name == "context" && selExpr.Sel.Name == "Context"
-		}
-	}
-	return false
-}
-
 // formatArgument converts an AST expression back to source code
 func formatArgument(pass *analysis.Pass, expr ast.Expr) string {
 	// Get the source text by reading from file
