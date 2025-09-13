@@ -14,23 +14,19 @@ type Checker interface {
 type CheckerName string
 
 const (
-	// HTTP function checkers
-	HTTPNewRequestChecker CheckerName = "http-new-request"
-	HTTPGetChecker        CheckerName = "http-get"
-	HTTPHeadChecker       CheckerName = "http-head"
-	HTTPPostChecker       CheckerName = "http-post"
-	
-	// Network function checkers
-	NetDialChecker CheckerName = "net-dial"
+	// Consolidated checkers
+	HTTPCheckerName CheckerName = "http"
+	NetCheckerName  CheckerName = "net"
+	ExecCheckerName CheckerName = "exec"
+	TLSCheckerName  CheckerName = "tls"
 )
 
 // Registry holds all available checkers
 var Registry = map[CheckerName]func() Checker{
-	HTTPNewRequestChecker: func() Checker { return &HTTPNewRequest{} },
-	HTTPGetChecker:        func() Checker { return &HTTPGet{} },
-	HTTPHeadChecker:       func() Checker { return &HTTPHead{} },
-	HTTPPostChecker:       func() Checker { return &HTTPPost{} },
-	NetDialChecker:        func() Checker { return &NetDial{} },
+	HTTPCheckerName: func() Checker { return &HTTPChecker{} },
+	NetCheckerName:  func() Checker { return &NetChecker{} },
+	ExecCheckerName: func() Checker { return &ExecChecker{} },
+	TLSCheckerName:  func() Checker { return &TLSChecker{} },
 }
 
 // GetAllCheckers returns instances of all available checkers

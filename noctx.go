@@ -29,23 +29,56 @@ var Analyzer = &analysis.Analyzer{
 }
 
 func Run(pass *analysis.Pass) (interface{}, error) {
-	// Use the unified checker for all functions with autofix support
-	unifiedChecker := checkers.NewUnifiedChecker()
-	if err := unifiedChecker.Check(pass); err != nil {
-		return nil, err
+	// Use consolidated checkers for functions with autofix support
+	autofixCheckers := []checkers.Checker{
+		&checkers.HTTPChecker{},
+		&checkers.NetChecker{},
+		&checkers.ExecChecker{},
+		&checkers.TLSChecker{},
+	}
+
+	for _, checker := range autofixCheckers {
+		if err := checker.Check(pass); err != nil {
+			return nil, err
+		}
 	}
 
 	// Fallback: use original logic for functions that may not be fully supported yet
-	// This ensures backward compatibility while we transition to the unified approach
-	if err := runFallbackChecks(pass, unifiedChecker); err != nil {
+	// This ensures backward compatibility while we add more function support
+	if err := runFallbackChecks(pass); err != nil {
 		return nil, err
 	}
 
 	return nil, nil
 }
 
-// runFallbackChecks provides backward compatibility for functions not yet fully supported by the unified checker
-func runFallbackChecks(pass *analysis.Pass, unifiedChecker *checkers.UnifiedChecker) error {
+// runFallbackChecks provides backward compatibility for functions not yet fully supported by the consolidated checkers
+func runFallbackChecks(pass *analysis.Pass) error {
+	// List of functions that have autofix support (to skip in fallback)
+	autofixSupportedFuncs := map[string]bool{
+		"net/http.NewRequest": true,
+		"net/http.Get":        true,
+		"net/http.Head":       true,
+		"net/http.Post":       true,
+		"net/http.PostForm":   true,
+		"net.Dial":            true,
+		"net.DialTimeout":     true,
+		"net.Listen":          true,
+		"net.ListenPacket":    true,
+		"net.LookupCNAME":     true,
+		"net.LookupHost":      true,
+		"net.LookupIP":        true,
+		"net.LookupPort":      true,
+		"net.LookupSRV":       true,
+		"net.LookupMX":        true,
+		"net.LookupNS":        true,
+		"net.LookupTXT":       true,
+		"net.LookupAddr":      true,
+		"os/exec.Command":     true,
+		"crypto/tls.Dial":     true,
+		"crypto/tls.DialWithDialer": true,
+	}
+
 	ngFuncs := typeFuncs(pass, slices.Collect(maps.Keys(diagnostics.Messages)))
 	if len(ngFuncs) == 0 {
 		return nil
@@ -56,9 +89,6 @@ func runFallbackChecks(pass *analysis.Pass, unifiedChecker *checkers.UnifiedChec
 		return fmt.Errorf("failed to get SSA")
 	}
 
-	// Check which functions are supported by the unified checker
-	supportedFuncs := unifiedChecker.GetSupportedFunctionNames()
-
 	for _, sf := range ssa.SrcFuncs {
 		for _, b := range sf.Blocks {
 			for _, instr := range b.Instrs {
@@ -66,8 +96,8 @@ func runFallbackChecks(pass *analysis.Pass, unifiedChecker *checkers.UnifiedChec
 					if analysisutil.Called(instr, nil, ngFunc) {
 						funcName := ngFunc.FullName()
 						
-						// Skip functions that are supported by unified checker
-						if _, supported := supportedFuncs[funcName]; supported {
+						// Skip functions that have autofix support (already handled above)
+						if autofixSupportedFuncs[funcName] {
 							continue
 						}
 						
