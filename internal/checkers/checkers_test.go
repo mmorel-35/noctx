@@ -26,10 +26,10 @@ func TestGetAllCheckers(t *testing.T) {
 	
 	// Verify expected checker names exist
 	expectedNames := []checkers.CheckerName{
-		checkers.HTTPCheckerName,
-		checkers.NetCheckerName,
-		checkers.ExecCheckerName,
-		checkers.TLSCheckerName,
+		"http",
+		"net",
+		"exec",
+		"tls",
 	}
 	
 	for _, expectedName := range expectedNames {
@@ -41,12 +41,12 @@ func TestGetAllCheckers(t *testing.T) {
 
 func TestGetChecker(t *testing.T) {
 	// Test getting existing checker
-	httpChecker := checkers.GetChecker(checkers.HTTPCheckerName)
+	httpChecker := checkers.GetChecker("http")
 	if httpChecker == nil {
 		t.Error("Expected HTTPChecker, got nil")
 	}
-	if httpChecker.Name() != checkers.HTTPCheckerName {
-		t.Errorf("Expected name %s, got %s", checkers.HTTPCheckerName, httpChecker.Name())
+	if httpChecker.Name() != "http" {
+		t.Errorf("Expected name %s, got %s", "http", httpChecker.Name())
 	}
 	
 	// Test getting non-existent checker
@@ -58,8 +58,8 @@ func TestGetChecker(t *testing.T) {
 
 func TestCheckerFactories(t *testing.T) {
 	// Test that all factories create different instances
-	checker1 := checkers.GetChecker(checkers.HTTPCheckerName)
-	checker2 := checkers.GetChecker(checkers.HTTPCheckerName)
+	checker1 := checkers.GetChecker("http")
+	checker2 := checkers.GetChecker("http")
 	
 	if checker1 == checker2 {
 		t.Error("Factory should create new instances, not return the same one")
@@ -72,7 +72,7 @@ func TestNewCheckerFunctions(t *testing.T) {
 	if httpChecker == nil {
 		t.Error("NewHTTPChecker returned nil")
 	}
-	if httpChecker.Name() != checkers.HTTPCheckerName {
+	if httpChecker.Name() != "http" {
 		t.Errorf("HTTPChecker name mismatch")
 	}
 	
@@ -80,7 +80,7 @@ func TestNewCheckerFunctions(t *testing.T) {
 	if netChecker == nil {
 		t.Error("NewNetChecker returned nil")
 	}
-	if netChecker.Name() != checkers.NetCheckerName {
+	if netChecker.Name() != "net" {
 		t.Errorf("NetChecker name mismatch")
 	}
 	
@@ -88,7 +88,7 @@ func TestNewCheckerFunctions(t *testing.T) {
 	if execChecker == nil {
 		t.Error("NewExecChecker returned nil")
 	}
-	if execChecker.Name() != checkers.ExecCheckerName {
+	if execChecker.Name() != "exec" {
 		t.Errorf("ExecChecker name mismatch")
 	}
 	
@@ -96,7 +96,7 @@ func TestNewCheckerFunctions(t *testing.T) {
 	if tlsChecker == nil {
 		t.Error("NewTLSChecker returned nil")
 	}
-	if tlsChecker.Name() != checkers.TLSCheckerName {
+	if tlsChecker.Name() != "tls" {
 		t.Errorf("TLSChecker name mismatch")
 	}
 }

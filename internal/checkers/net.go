@@ -8,7 +8,6 @@ import (
 	"golang.org/x/tools/go/analysis"
 
 	"github.com/sonatard/noctx/internal/fixes"
-	"github.com/sonatard/noctx/internal/registry"
 )
 
 // NetChecker handles all net package functions that need context
@@ -34,14 +33,6 @@ func (c *NetChecker) Name() CheckerName {
 
 // Check performs the analysis for all net functions
 func (c *NetChecker) Check(pass *analysis.Pass) error {
-	// Get Net rules from registry
-	rulesByChecker := registry.GetRulesByChecker()
-	netRules := rulesByChecker[NetCheckerName]
-	
-	if len(netRules) == 0 {
-		return nil // No Net rules to process
-	}
-
 	// Define all net functions we handle
 	functions := []FunctionConfig{
 		{"net", "Dial", c.generateNetDialFix},

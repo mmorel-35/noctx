@@ -8,7 +8,6 @@ import (
 	"golang.org/x/tools/go/analysis"
 
 	"github.com/sonatard/noctx/internal/fixes"
-	"github.com/sonatard/noctx/internal/registry"
 )
 
 // ExecChecker handles os/exec package functions that need context
@@ -34,14 +33,6 @@ func (c *ExecChecker) Name() CheckerName {
 
 // Check performs the analysis for exec functions
 func (c *ExecChecker) Check(pass *analysis.Pass) error {
-	// Get Exec rules from registry
-	rulesByChecker := registry.GetRulesByChecker()
-	execRules := rulesByChecker[ExecCheckerName]
-	
-	if len(execRules) == 0 {
-		return nil // No Exec rules to process
-	}
-
 	functions := []FunctionConfig{
 		{"os/exec", "Command", c.generateExecCommandFix},
 	}

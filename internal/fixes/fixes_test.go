@@ -15,10 +15,8 @@ import (
 func TestContextDetector(t *testing.T) {
 	detector := &fixes.ContextDetector{}
 	
-	// Create a mock analysis.Pass and call expression for testing
+	// Test case 1: Simple fallback when no package is available
 	fset := token.NewFileSet()
-	
-	// Test with simple call expression
 	expr, err := parser.ParseExpr("http.Get(\"url\")")
 	if err != nil {
 		t.Fatal(err)
@@ -29,16 +27,15 @@ func TestContextDetector(t *testing.T) {
 		t.Fatal("Expected CallExpr")
 	}
 	
-	// Create minimal pass for testing
+	// Create minimal pass for testing - Pkg is nil
 	pass := &analysis.Pass{
-		Fset: fset,
-		Pkg:  nil, // Would need more setup for real testing
+		Fset:  fset,
+		Files: []*ast.File{},
+		Pkg:   nil, // This will trigger the fallback path
 	}
 	
-	// Test context detection (this is a basic test due to complexity of full setup)
+	// Test context detection - should fallback to context.Background()
 	contextExpr := detector.DetectContext(pass, callExpr)
-	
-	// Should fallback to context.Background() when no context package is detected
 	expectedFallback := "context.Background()"
 	if contextExpr != expectedFallback {
 		t.Errorf("Expected fallback context %s, got %s", expectedFallback, contextExpr)

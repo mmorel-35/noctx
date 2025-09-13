@@ -7,7 +7,6 @@ import (
 	"golang.org/x/tools/go/analysis"
 
 	"github.com/sonatard/noctx/internal/fixes"
-	"github.com/sonatard/noctx/internal/registry"
 )
 
 // TLSChecker handles crypto/tls package functions that need context
@@ -33,14 +32,6 @@ func (c *TLSChecker) Name() CheckerName {
 
 // Check performs the analysis for TLS functions
 func (c *TLSChecker) Check(pass *analysis.Pass) error {
-	// Get TLS rules from registry
-	rulesByChecker := registry.GetRulesByChecker()
-	tlsRules := rulesByChecker[TLSCheckerName]
-	
-	if len(tlsRules) == 0 {
-		return nil // No TLS rules to process
-	}
-
 	functions := []FunctionConfig{
 		{"crypto/tls", "Dial", c.generateTLSDialFix},
 		{"crypto/tls", "DialWithDialer", c.generateTLSDialWithDialerFix},

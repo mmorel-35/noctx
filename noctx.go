@@ -2,8 +2,6 @@ package noctx
 
 import (
 	"fmt"
-	"maps"
-	"slices"
 
 	"github.com/gostaticanalysis/analysisutil"
 	"golang.org/x/tools/go/analysis"

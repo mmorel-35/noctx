@@ -3,7 +3,6 @@ package registry_test
 import (
 	"testing"
 
-	"github.com/sonatard/noctx/internal/checkers"
 	"github.com/sonatard/noctx/internal/registry"
 )
 
@@ -36,11 +35,11 @@ func TestGetRulesByChecker(t *testing.T) {
 	grouped := registry.GetRulesByChecker()
 	
 	// Should have rules for all checker types
-	expectedCheckers := []checkers.CheckerName{
-		checkers.HTTPCheckerName,
-		checkers.NetCheckerName,
-		checkers.ExecCheckerName,
-		checkers.TLSCheckerName,
+	expectedCheckers := []string{
+		"http",
+		"net",
+		"exec",
+		"tls",
 	}
 	
 	for _, checkerName := range expectedCheckers {
@@ -50,7 +49,7 @@ func TestGetRulesByChecker(t *testing.T) {
 	}
 	
 	// Verify HTTP checker has correct number of rules
-	httpRules := grouped[checkers.HTTPCheckerName]
+	httpRules := grouped["http"]
 	expectedHTTPCount := 5 // Get, Head, Post, PostForm, NewRequest
 	if len(httpRules) != expectedHTTPCount {
 		t.Errorf("Expected %d HTTP rules, got %d", expectedHTTPCount, len(httpRules))

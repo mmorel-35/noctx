@@ -24,12 +24,14 @@ func (cd *ContextDetector) DetectContext(pass *analysis.Pass, callExpr *ast.Call
 		return contextVar
 	}
 
-	// Check if testing package is imported
+	// Check if testing package is imported (need to guard against nil package)
 	hasTestingImport := false
-	for _, pkg := range pass.Pkg.Imports() {
-		if pkg.Path() == "testing" {
-			hasTestingImport = true
-			break
+	if pass.Pkg != nil {
+		for _, pkg := range pass.Pkg.Imports() {
+			if pkg.Path() == "testing" {
+				hasTestingImport = true
+				break
+			}
 		}
 	}
 	
@@ -38,12 +40,14 @@ func (cd *ContextDetector) DetectContext(pass *analysis.Pass, callExpr *ast.Call
 		return "t.Context()"
 	}
 
-	// Check if context package is imported
+	// Check if context package is imported (need to guard against nil package)
 	hasContextImport := false
-	for _, pkg := range pass.Pkg.Imports() {
-		if pkg.Path() == "context" {
-			hasContextImport = true
-			break
+	if pass.Pkg != nil {
+		for _, pkg := range pass.Pkg.Imports() {
+			if pkg.Path() == "context" {
+				hasContextImport = true
+				break
+			}
 		}
 	}
 	
@@ -62,16 +66,22 @@ func (cd *ContextDetector) findContextVariable(pass *analysis.Pass, callExpr *as
 	var containingFunc *ast.FuncDecl
 	
 	// Find the function that contains this call expression
-	ast.Inspect(pass.Files[0], func(n ast.Node) bool {
-		if funcDecl, ok := n.(*ast.FuncDecl); ok {
-			// Check if callExpr is within this function
-			if callExpr.Pos() >= funcDecl.Pos() && callExpr.End() <= funcDecl.End() {
-				containingFunc = funcDecl
-				return false // Found it, stop walking
+	// We need to search through all files in the pass
+	for _, file := range pass.Files {
+		ast.Inspect(file, func(n ast.Node) bool {
+			if funcDecl, ok := n.(*ast.FuncDecl); ok {
+				// Check if callExpr is within this function
+				if callExpr.Pos() >= funcDecl.Pos() && callExpr.End() <= funcDecl.End() {
+					containingFunc = funcDecl
+					return false // Found it, stop walking
+				}
 			}
+			return true
+		})
+		if containingFunc != nil {
+			break // Found the function, no need to search other files
 		}
-		return true
-	})
+	}
 
 	if containingFunc == nil {
 		return ""
