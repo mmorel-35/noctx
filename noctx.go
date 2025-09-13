@@ -28,43 +28,37 @@ var Analyzer = &analysis.Analyzer{
 	FactTypes:  nil,
 }
 
-// Functions that have autofix support
-var autofixSupportedFuncs = map[string]bool{
-	"net/http.NewRequest": true,
-	"net/http.Get":        true,
-	"net/http.Head":       true,
-	"net/http.Post":       true,
-	"net.Dial":            true,
+func Run(pass *analysis.Pass) (interface{}, error) {
+	// Use the unified checker for all functions with autofix support
+	unifiedChecker := checkers.NewUnifiedChecker()
+	if err := unifiedChecker.Check(pass); err != nil {
+		return nil, err
+	}
+
+	// Fallback: use original logic for functions that may not be fully supported yet
+	// This ensures backward compatibility while we transition to the unified approach
+	if err := runFallbackChecks(pass, unifiedChecker); err != nil {
+		return nil, err
+	}
+
+	return nil, nil
 }
 
-func Run(pass *analysis.Pass) (interface{}, error) {
-	// First, run the specialized checkers for functions with autofix support
-	autofixCheckers := []checkers.Checker{
-		&checkers.HTTPNewRequest{},
-		&checkers.HTTPGet{},
-		&checkers.HTTPHead{},
-		&checkers.HTTPPost{},
-		&checkers.NetDial{},
-	}
-
-	for _, checker := range autofixCheckers {
-		if err := checker.Check(pass); err != nil {
-			return nil, err
-		}
-	}
-
-	// Then run the original logic for other functions without autofix
+// runFallbackChecks provides backward compatibility for functions not yet fully supported by the unified checker
+func runFallbackChecks(pass *analysis.Pass, unifiedChecker *checkers.UnifiedChecker) error {
 	ngFuncs := typeFuncs(pass, slices.Collect(maps.Keys(diagnostics.Messages)))
 	if len(ngFuncs) == 0 {
-		return nil, nil
+		return nil
 	}
 
 	ssa, ok := pass.ResultOf[buildssa.Analyzer].(*buildssa.SSA)
 	if !ok {
-		panic(fmt.Sprintf("%T is not *buildssa.SSA", pass.ResultOf[buildssa.Analyzer]))
+		return fmt.Errorf("failed to get SSA")
 	}
 
-	// Use original SSA-based detection for functions without autofix
+	// Check which functions are supported by the unified checker
+	supportedFuncs := unifiedChecker.GetSupportedFunctionNames()
+
 	for _, sf := range ssa.SrcFuncs {
 		for _, b := range sf.Blocks {
 			for _, instr := range b.Instrs {
@@ -72,12 +66,12 @@ func Run(pass *analysis.Pass) (interface{}, error) {
 					if analysisutil.Called(instr, nil, ngFunc) {
 						funcName := ngFunc.FullName()
 						
-						// Skip functions that have autofix support (already handled above)
-						if autofixSupportedFuncs[funcName] {
+						// Skip functions that are supported by unified checker
+						if _, supported := supportedFuncs[funcName]; supported {
 							continue
 						}
 						
-						// Report violation without autofix
+						// Report violation without autofix for unsupported functions
 						pass.Reportf(instr.Pos(), "%s", diagnostics.FormatDiagnostic(funcName))
 						break
 					}
@@ -86,7 +80,7 @@ func Run(pass *analysis.Pass) (interface{}, error) {
 		}
 	}
 
-	return nil, nil
+	return nil
 }
 
 
