@@ -4,28 +4,50 @@ This document provides technical details for developers working on the `noctx` a
 
 ## Architecture Overview
 
-The analyzer follows a modular architecture inspired by the testifylint pattern:
+The analyzer follows a modular architecture inspired by the testifylint pattern with separate checkers per rule type:
 
-- **`internal/checkers/`**: Consolidated checker modules with factory pattern
+### Public Components
+- **`analyzer/analyzer.go`**: Public analyzer factory (moved from internal)
+- **`noctx.go`**: Main package interface
+
+### Internal Architecture  
+- **`internal/checkers/`**: Individual checker implementations (http, net, exec, tls)
 - **`internal/registry/`**: Unified function rule registry serving as single source of truth
-- **`internal/fixes/`**: Reusable fix generation utilities and smart detection logic
+- **`internal/fixes/`**: Reusable fix generation utilities and Go version detection
+- **`internal/helpers/`**: Shared interface checking and analysis utilities
 
 ## Code Organization
 
 ### Checker Pattern
 
-Each checker implements the `Checker` interface:
+Each checker implements the `Checker` interface and handles a specific category of functions:
 
 ```go
 type Checker interface {
     Check(pass *analysis.Pass) error
-    Name() CheckerName
+    Name() string
 }
 ```
 
-#### Self-Naming Checkers
+**Current Checkers:**
+- `HTTPChecker` - HTTP package functions
+- `NetChecker` - Network package functions  
+- `ExecChecker` - Exec package functions
+- `TLSChecker` - TLS package functions
 
-Checkers are responsible for their own identity through the `Name()` method, eliminating external naming dependencies.
+#### Go Version Detection
+
+Proper Go 1.24+ detection for `t.Context()` suggestions:
+
+```go
+type GoVersionDetector struct {
+    skipGoVersionDetection bool
+}
+
+func (g *GoVersionDetector) IsGo124OrGreater(pass *analysis.Pass) bool
+```
+
+Uses pattern from [usetesting](https://github.com/ldez/usetesting) for reliable version detection.
 
 #### Factory Pattern
 
