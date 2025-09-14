@@ -1,4 +1,4 @@
-package noctx_test
+package noctx_test_test
 
 import (
 	"testing"
@@ -7,16 +7,13 @@ import (
 	"golang.org/x/tools/go/analysis/analysistest"
 )
 
-func TestAnalyzer(t *testing.T) {
+func TestAutofixAnalyzer(t *testing.T) {
 	testCases := []struct {
 		desc string
 	}{
-		{desc: "crypto_tls"},
-		{desc: "exec_cmd"},
-		{desc: "http_client"},
-		{desc: "http_request"},
-		{desc: "network"},
-		{desc: "sql"},
+		{desc: "http_autofix"},
+		{desc: "http_get_test"},
+		{desc: "net_autofix"},
 	}
 
 	for _, test := range testCases {
