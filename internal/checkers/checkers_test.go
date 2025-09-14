@@ -9,7 +9,7 @@ import (
 func TestGetAllCheckers(t *testing.T) {
 	allCheckers := checkers.GetAllCheckers()
 	
-	expectedCount := 4 // HTTP, Net, Exec, TLS
+	expectedCount := 1 // Unified checker
 	if len(allCheckers) != expectedCount {
 		t.Errorf("Expected %d checkers, got %d", expectedCount, len(allCheckers))
 	}
@@ -26,10 +26,7 @@ func TestGetAllCheckers(t *testing.T) {
 	
 	// Verify expected checker names exist
 	expectedNames := []checkers.CheckerName{
-		"http",
-		"net",
-		"exec",
-		"tls",
+		"unified",
 	}
 	
 	for _, expectedName := range expectedNames {
@@ -41,12 +38,12 @@ func TestGetAllCheckers(t *testing.T) {
 
 func TestGetChecker(t *testing.T) {
 	// Test getting existing checker
-	httpChecker := checkers.GetChecker("http")
-	if httpChecker == nil {
-		t.Error("Expected HTTPChecker, got nil")
+	unifiedChecker := checkers.GetChecker("unified")
+	if unifiedChecker == nil {
+		t.Error("Expected UnifiedChecker, got nil")
 	}
-	if httpChecker.Name() != "http" {
-		t.Errorf("Expected name %s, got %s", "http", httpChecker.Name())
+	if unifiedChecker.Name() != "unified" {
+		t.Errorf("Expected name %s, got %s", "unified", unifiedChecker.Name())
 	}
 	
 	// Test getting non-existent checker
@@ -58,8 +55,8 @@ func TestGetChecker(t *testing.T) {
 
 func TestCheckerFactories(t *testing.T) {
 	// Test that all factories create different instances
-	checker1 := checkers.GetChecker("http")
-	checker2 := checkers.GetChecker("http")
+	checker1 := checkers.GetChecker("unified")
+	checker2 := checkers.GetChecker("unified")
 	
 	if checker1 == checker2 {
 		t.Error("Factory should create new instances, not return the same one")
@@ -67,37 +64,13 @@ func TestCheckerFactories(t *testing.T) {
 }
 
 func TestNewCheckerFunctions(t *testing.T) {
-	// Test each individual New function
-	httpChecker := checkers.NewHTTPChecker()
-	if httpChecker == nil {
-		t.Error("NewHTTPChecker returned nil")
+	// Test the unified checker function
+	unifiedChecker := checkers.NewUnifiedChecker()
+	if unifiedChecker == nil {
+		t.Error("NewUnifiedChecker returned nil")
 	}
-	if httpChecker.Name() != "http" {
-		t.Errorf("HTTPChecker name mismatch")
-	}
-	
-	netChecker := checkers.NewNetChecker()
-	if netChecker == nil {
-		t.Error("NewNetChecker returned nil")
-	}
-	if netChecker.Name() != "net" {
-		t.Errorf("NetChecker name mismatch")
-	}
-	
-	execChecker := checkers.NewExecChecker()
-	if execChecker == nil {
-		t.Error("NewExecChecker returned nil")
-	}
-	if execChecker.Name() != "exec" {
-		t.Errorf("ExecChecker name mismatch")
-	}
-	
-	tlsChecker := checkers.NewTLSChecker()
-	if tlsChecker == nil {
-		t.Error("NewTLSChecker returned nil")
-	}
-	if tlsChecker.Name() != "tls" {
-		t.Errorf("TLSChecker name mismatch")
+	if unifiedChecker.Name() != "unified" {
+		t.Errorf("UnifiedChecker name mismatch")
 	}
 }
 

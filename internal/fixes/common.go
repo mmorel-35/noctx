@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"strings"
 
 	"golang.org/x/tools/go/analysis"
 )
@@ -35,8 +36,8 @@ func (cd *ContextDetector) DetectContext(pass *analysis.Pass, callExpr *ast.Call
 		}
 	}
 	
-	// If testing is imported, use t.Context() for test functions
-	if hasTestingImport {
+	// If testing is imported and Go version is 1.24+, use t.Context() for test functions
+	if hasTestingImport && cd.isGoVersion124OrLater(pass) && cd.isInTestFunction(pass, callExpr) {
 		return "t.Context()"
 	}
 
@@ -119,6 +120,49 @@ func (cd *ContextDetector) isContextType(pass *analysis.Pass, expr ast.Expr) boo
 		}
 	}
 	return false
+}
+
+// isGoVersion124OrLater checks if the current Go version is 1.24 or later
+func (cd *ContextDetector) isGoVersion124OrLater(pass *analysis.Pass) bool {
+	// Try to get Go version from module info
+	// This is a simplified approach - in production, you might want to
+	// parse go.mod file or use build constraints
+	
+	// For now, we'll be conservative and assume Go 1.24+ is available
+	// TODO: Implement proper Go version detection by reading go.mod
+	return true // Placeholder - always assume modern Go version for now
+}
+
+// isInTestFunction checks if the call expression is within a test function
+func (cd *ContextDetector) isInTestFunction(pass *analysis.Pass, callExpr *ast.CallExpr) bool {
+	// Find the containing function
+	var containingFunc *ast.FuncDecl
+	
+	for _, file := range pass.Files {
+		ast.Inspect(file, func(n ast.Node) bool {
+			if funcDecl, ok := n.(*ast.FuncDecl); ok {
+				// Check if callExpr is within this function
+				if callExpr.Pos() >= funcDecl.Pos() && callExpr.End() <= funcDecl.End() {
+					containingFunc = funcDecl
+					return false // Found it, stop walking
+				}
+			}
+			return true
+		})
+		if containingFunc != nil {
+			break // Found the function, no need to search other files
+		}
+	}
+
+	if containingFunc == nil || containingFunc.Name == nil {
+		return false
+	}
+
+	// Check if function name starts with "Test", "Benchmark", or "Example"
+	funcName := containingFunc.Name.Name
+	return strings.HasPrefix(funcName, "Test") ||
+		strings.HasPrefix(funcName, "Benchmark") ||
+		strings.HasPrefix(funcName, "Example")
 }
 
 // VariableAssignmentDetector detects whether to use := or = for variable assignments

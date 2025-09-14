@@ -17,11 +17,8 @@ type Checker interface {
 type CheckerName string
 
 const (
-	// Consolidated checkers
-	HTTPCheckerName CheckerName = "http"
-	NetCheckerName  CheckerName = "net"
-	ExecCheckerName CheckerName = "exec"
-	TLSCheckerName  CheckerName = "tls"
+	// Unified checker name
+	UnifiedCheckerName CheckerName = "unified"
 )
 
 // CheckerFactory creates a new instance of a checker
@@ -29,10 +26,7 @@ type CheckerFactory func() Checker
 
 // Registry holds all available checker factories
 var Registry = map[CheckerName]CheckerFactory{
-	HTTPCheckerName: func() Checker { return NewHTTPChecker() },
-	NetCheckerName:  func() Checker { return NewNetChecker() },
-	ExecCheckerName: func() Checker { return NewExecChecker() },
-	TLSCheckerName:  func() Checker { return NewTLSChecker() },
+	UnifiedCheckerName: func() Checker { return NewUnifiedChecker() },
 }
 
 // GetAllCheckers returns instances of all available checkers
