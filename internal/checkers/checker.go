@@ -10,23 +10,18 @@ type Checker interface {
 	Check(pass *analysis.Pass) error
 	
 	// Name returns the name of this checker
-	Name() CheckerName
+	Name() string
 }
-
-// CheckerName represents the type of checker
-type CheckerName string
-
-const (
-	// Unified checker name
-	UnifiedCheckerName CheckerName = "unified"
-)
 
 // CheckerFactory creates a new instance of a checker
 type CheckerFactory func() Checker
 
 // Registry holds all available checker factories
-var Registry = map[CheckerName]CheckerFactory{
-	UnifiedCheckerName: func() Checker { return NewUnifiedChecker() },
+var Registry = map[string]CheckerFactory{
+	"http": func() Checker { return NewHTTPChecker() },
+	"net":  func() Checker { return NewNetChecker() },
+	"exec": func() Checker { return NewExecChecker() },
+	"tls":  func() Checker { return NewTLSChecker() },
 }
 
 // GetAllCheckers returns instances of all available checkers
@@ -39,7 +34,7 @@ func GetAllCheckers() []Checker {
 }
 
 // GetChecker returns a new instance of the specified checker
-func GetChecker(name CheckerName) Checker {
+func GetChecker(name string) Checker {
 	if factory, exists := Registry[name]; exists {
 		return factory()
 	}

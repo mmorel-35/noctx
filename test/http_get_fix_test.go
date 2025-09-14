@@ -1,4 +1,4 @@
-package noctx_test
+package noctx_test_test
 
 import (
 	"testing"
@@ -7,11 +7,11 @@ import (
 	"golang.org/x/tools/go/analysis/analysistest"
 )
 
-func TestSuggestedFixes(t *testing.T) {
+func TestHttpGetSuggestedFixes(t *testing.T) {
 	testdir := analysistest.TestData()
 	
-	// Test that suggested fixes are generated for http.NewRequest
-	results := analysistest.Run(t, testdir, noctx.Analyzer, "http_autofix")
+	// Test that suggested fixes are generated for http.Get and http.Head
+	results := analysistest.Run(t, testdir, noctx.Analyzer, "http_get_test")
 	
 	// Check that at least one diagnostic has a suggested fix
 	hasFixedDiagnostic := false

@@ -16,7 +16,16 @@ type SuggestedFix struct {
 }
 
 // ContextDetector detects the most appropriate context to use in fixes
-type ContextDetector struct{}
+type ContextDetector struct {
+	versionDetector *GoVersionDetector
+}
+
+// NewContextDetector creates a new context detector with version detection
+func NewContextDetector(versionDetector *GoVersionDetector) *ContextDetector {
+	return &ContextDetector{
+		versionDetector: versionDetector,
+	}
+}
 
 // DetectContext finds the most appropriate context expression to use
 func (cd *ContextDetector) DetectContext(pass *analysis.Pass, callExpr *ast.CallExpr) string {
@@ -37,7 +46,7 @@ func (cd *ContextDetector) DetectContext(pass *analysis.Pass, callExpr *ast.Call
 	}
 	
 	// If testing is imported and Go version is 1.24+, use t.Context() for test functions
-	if hasTestingImport && cd.isGoVersion124OrLater(pass) && cd.isInTestFunction(pass, callExpr) {
+	if hasTestingImport && cd.versionDetector.IsGo124OrGreater(pass) && cd.isInTestFunction(pass, callExpr) {
 		return "t.Context()"
 	}
 

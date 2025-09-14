@@ -26,17 +26,22 @@ type FunctionConfig struct {
 
 // CheckerContext provides shared context for checkers
 type CheckerContext struct {
-	ContextDetector *fixes.ContextDetector
-	ArgFormatter    *fixes.ArgumentFormatter
-	AssignDetector  *fixes.VariableAssignmentDetector
+	ContextDetector  *fixes.ContextDetector
+	ArgFormatter     *fixes.ArgumentFormatter
+	AssignDetector   *fixes.VariableAssignmentDetector
+	VersionDetector  *fixes.GoVersionDetector
+	InterfaceChecker *InterfaceImplementationChecker
 }
 
 // NewCheckerContext creates a new shared checker context
 func NewCheckerContext() *CheckerContext {
+	versionDetector := fixes.NewGoVersionDetector()
 	return &CheckerContext{
-		ContextDetector: &fixes.ContextDetector{},
-		ArgFormatter:    &fixes.ArgumentFormatter{},
-		AssignDetector:  &fixes.VariableAssignmentDetector{},
+		ContextDetector:  fixes.NewContextDetector(versionDetector),
+		ArgFormatter:     &fixes.ArgumentFormatter{},
+		AssignDetector:   &fixes.VariableAssignmentDetector{},
+		VersionDetector:  versionDetector,
+		InterfaceChecker: NewInterfaceImplementationChecker(),
 	}
 }
 

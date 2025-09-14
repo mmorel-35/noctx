@@ -1,4 +1,4 @@
-package noctx_test
+package noctx_test_test
 
 import (
 	"testing"
