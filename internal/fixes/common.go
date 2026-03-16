@@ -5,6 +5,7 @@ import (
 	"go/ast"
 	"go/format"
 	"go/token"
+	"strings"
 
 	"golang.org/x/tools/go/analysis"
 )
@@ -56,10 +57,175 @@ func Generate(pass *analysis.Pass, funcName string, ce *ast.CallExpr) *analysis.
 	if !ok {
 		return nil
 	}
-	return fn(pass, ce, detectContext(pass, ce))
+	cd := NewContextDetector(NewGoVersionDetector())
+	return fn(pass, ce, cd.DetectContext(pass, ce))
 }
 
-// ── helpers ──────────────────────────────────────────────────────────────────
+// ── ContextDetector ───────────────────────────────────────────────────────────
+
+// ContextDetector detects the most appropriate context expression to use in fixes.
+type ContextDetector struct {
+	versionDetector *GoVersionDetector
+}
+
+// NewContextDetector creates a new ContextDetector backed by the supplied
+// GoVersionDetector.
+func NewContextDetector(vd *GoVersionDetector) *ContextDetector {
+	return &ContextDetector{versionDetector: vd}
+}
+
+// DetectContext finds the best context expression to use at the call site.
+// It searches the enclosing function or func-literal for a context.Context
+// parameter first. If none is found it checks whether t.Context() is
+// appropriate (Go 1.24+ test functions), and finally falls back to
+// context.Background().
+func (cd *ContextDetector) DetectContext(pass *analysis.Pass, ce *ast.CallExpr) string {
+	// 1. Look for a context.Context parameter in the enclosing function/literal.
+	fn := findContainingFunc(pass.Files, ce.Pos())
+	if fn != nil {
+		var params *ast.FieldList
+		switch f := fn.(type) {
+		case *ast.FuncDecl:
+			params = f.Type.Params
+		case *ast.FuncLit:
+			params = f.Type.Params
+		}
+		if params != nil {
+			for _, param := range params.List {
+				if isContextType(pass, param.Type) && len(param.Names) > 0 {
+					return param.Names[0].Name
+				}
+			}
+		}
+	}
+
+	// 2. In test functions on Go 1.24+, suggest t.Context().
+	vd := cd.versionDetector
+	if vd == nil {
+		vd = NewGoVersionDetector()
+	}
+	if cd.hasTestingImport(pass) && vd.IsGo124OrGreater(pass) && cd.isInTestFunction(pass, ce) {
+		return "t.Context()"
+	}
+
+	// 3. Fallback.
+	return "context.Background()"
+}
+
+// hasTestingImport reports whether the package under analysis imports "testing".
+func (cd *ContextDetector) hasTestingImport(pass *analysis.Pass) bool {
+	if pass.Pkg == nil {
+		return false
+	}
+	for _, pkg := range pass.Pkg.Imports() {
+		if pkg.Path() == "testing" {
+			return true
+		}
+	}
+	return false
+}
+
+// isInTestFunction reports whether the call expression is inside a function
+// whose name starts with Test, Benchmark, or Example.
+func (cd *ContextDetector) isInTestFunction(pass *analysis.Pass, ce *ast.CallExpr) bool {
+	fn := findContainingFunc(pass.Files, ce.Pos())
+	if fn == nil {
+		return false
+	}
+	decl, ok := fn.(*ast.FuncDecl)
+	if !ok || decl.Name == nil {
+		return false
+	}
+	name := decl.Name.Name
+	return strings.HasPrefix(name, "Test") ||
+		strings.HasPrefix(name, "Benchmark") ||
+		strings.HasPrefix(name, "Example")
+}
+
+// ── VariableAssignmentDetector ────────────────────────────────────────────────
+
+// VariableAssignmentDetector determines whether to use := or = for variable
+// assignments in generated fix code.
+type VariableAssignmentDetector struct{}
+
+// DetectAssignmentOperator returns ":=" if any of varNames are not yet declared
+// in the enclosing scope, and "=" if they are all already declared.
+//
+// Note: this implementation uses the package-level scope as a simplified
+// approximation. Block-scoped variables declared within functions are not
+// visible at package scope, so this will conservatively return ":=" for most
+// call sites inside function bodies, which is the safe default.
+func (vad *VariableAssignmentDetector) DetectAssignmentOperator(pass *analysis.Pass, _ *ast.CallExpr, varNames ...string) string {
+	if pass.Pkg == nil {
+		return ":="
+	}
+	scope := pass.Pkg.Scope()
+	for _, name := range varNames {
+		if scope.Lookup(name) == nil {
+			return ":="
+		}
+	}
+	return "="
+}
+
+// ── ArgumentFormatter ─────────────────────────────────────────────────────────
+
+// ArgumentFormatter converts AST expressions back to source-code strings.
+type ArgumentFormatter struct{}
+
+// FormatArgument returns the source text of an AST expression.
+func (af *ArgumentFormatter) FormatArgument(pass *analysis.Pass, expr ast.Expr) string {
+	s := nodeStr(pass.Fset, expr)
+	if s != "" {
+		return s
+	}
+	// Fallback for basic node types that format.Node may not handle without a
+	// proper FileSet.
+	switch e := expr.(type) {
+	case *ast.BasicLit:
+		return e.Value
+	case *ast.Ident:
+		return e.Name
+	case *ast.SelectorExpr:
+		if ident, ok := e.X.(*ast.Ident); ok {
+			return ident.Name + "." + e.Sel.Name
+		}
+	}
+	return "expr"
+}
+
+// FormatBodyArgument is like FormatArgument but replaces a nil body with
+// http.NoBody, which is the idiomatic replacement when building an HTTP
+// request without a body.
+func (af *ArgumentFormatter) FormatBodyArgument(pass *analysis.Pass, expr ast.Expr) string {
+	if ident, ok := expr.(*ast.Ident); ok && ident.Name == "nil" {
+		return "http.NoBody"
+	}
+	return af.FormatArgument(pass, expr)
+}
+
+// ── Text-edit helpers (exported) ──────────────────────────────────────────────
+
+// CreateTextEdit creates a TextEdit that replaces the entire call expression
+// with newText.
+func CreateTextEdit(ce *ast.CallExpr, newText string) analysis.TextEdit {
+	return analysis.TextEdit{
+		Pos:     ce.Pos(),
+		End:     ce.End(),
+		NewText: []byte(newText),
+	}
+}
+
+// CreateSuggestedFix creates a SuggestedFix with a single text edit that
+// replaces the entire call expression with newText.
+func CreateSuggestedFix(message string, ce *ast.CallExpr, newText string) *analysis.SuggestedFix {
+	return &analysis.SuggestedFix{
+		Message:   message,
+		TextEdits: []analysis.TextEdit{CreateTextEdit(ce, newText)},
+	}
+}
+
+// ── internal helpers ──────────────────────────────────────────────────────────
 
 // extractQualifier returns the package qualifier used at the call site with a
 // trailing dot (e.g. "http.", "h.", "exec."), or an empty string when the
@@ -101,28 +267,10 @@ func arg(pass *analysis.Pass, ce *ast.CallExpr, i int) string {
 	return s
 }
 
-// detectContext finds the best context expression to use at the call site.
-// It searches the enclosing function or func-literal for a context.Context
-// parameter. If none is found, it falls back to context.Background().
-func detectContext(pass *analysis.Pass, ce *ast.CallExpr) string {
-	fn := findContainingFunc(pass.Files, ce.Pos())
-	if fn != nil {
-		var params *ast.FieldList
-		switch f := fn.(type) {
-		case *ast.FuncDecl:
-			params = f.Type.Params
-		case *ast.FuncLit:
-			params = f.Type.Params
-		}
-		if params != nil {
-			for _, param := range params.List {
-				if isContextType(pass, param.Type) && len(param.Names) > 0 {
-					return param.Names[0].Name
-				}
-			}
-		}
-	}
-	return "context.Background()"
+// createFix builds a SuggestedFix that replaces the entire call expression
+// with newText. It delegates to CreateSuggestedFix.
+func createFix(message string, ce *ast.CallExpr, newText string) *analysis.SuggestedFix {
+	return CreateSuggestedFix(message, ce, newText)
 }
 
 // findContainingFunc returns the innermost *ast.FuncDecl or *ast.FuncLit that
@@ -159,24 +307,12 @@ func findContainingFunc(files []*ast.File, pos token.Pos) ast.Node {
 
 // isContextType reports whether the expression represents the context.Context type.
 func isContextType(pass *analysis.Pass, expr ast.Expr) bool {
+	if pass.TypesInfo == nil {
+		return false
+	}
 	t := pass.TypesInfo.TypeOf(expr)
 	if t == nil {
 		return false
 	}
 	return t.String() == "context.Context"
-}
-
-// createFix builds an analysis.SuggestedFix that replaces the entire call
-// expression with newText.
-func createFix(message string, ce *ast.CallExpr, newText string) *analysis.SuggestedFix {
-	return &analysis.SuggestedFix{
-		Message: message,
-		TextEdits: []analysis.TextEdit{
-			{
-				Pos:     ce.Pos(),
-				End:     ce.End(),
-				NewText: []byte(newText),
-			},
-		},
-	}
 }
