@@ -2,11 +2,9 @@ package noctx
 
 import (
 	"bytes"
-	"fmt"
 	"go/ast"
 	"go/format"
 	"go/token"
-	"strings"
 
 	"golang.org/x/tools/go/analysis"
 )
@@ -19,31 +17,19 @@ type fixFunc func(pass *analysis.Pass, ce *ast.CallExpr, ctx string) *analysis.S
 // Entries are grouped by package to mirror ngFuncMessages.
 var ngFuncFixes = map[string]fixFunc{
 	// net
-	"net.Listen":      fixNetListen,
+	"net.Listen":       fixNetListen,
 	"net.ListenPacket": fixNetListenPacket,
-	"net.Dial":        fixNetDial,
-	"net.DialTimeout": fixNetDialTimeout,
-	"net.LookupCNAME": func(pass *analysis.Pass, ce *ast.CallExpr, ctx string) *analysis.SuggestedFix {
-		return fixNetResolver1(pass, ce, ctx, "LookupCNAME")
-	},
-	"net.LookupHost": func(pass *analysis.Pass, ce *ast.CallExpr, ctx string) *analysis.SuggestedFix {
-		return fixNetResolver1(pass, ce, ctx, "LookupHost")
-	},
-	"net.LookupIP": fixNetLookupIP,
-	"net.LookupPort": fixNetLookupPort,
-	"net.LookupSRV": fixNetLookupSRV,
-	"net.LookupMX": func(pass *analysis.Pass, ce *ast.CallExpr, ctx string) *analysis.SuggestedFix {
-		return fixNetResolver1(pass, ce, ctx, "LookupMX")
-	},
-	"net.LookupNS": func(pass *analysis.Pass, ce *ast.CallExpr, ctx string) *analysis.SuggestedFix {
-		return fixNetResolver1(pass, ce, ctx, "LookupNS")
-	},
-	"net.LookupTXT": func(pass *analysis.Pass, ce *ast.CallExpr, ctx string) *analysis.SuggestedFix {
-		return fixNetResolver1(pass, ce, ctx, "LookupTXT")
-	},
-	"net.LookupAddr": func(pass *analysis.Pass, ce *ast.CallExpr, ctx string) *analysis.SuggestedFix {
-		return fixNetResolver1(pass, ce, ctx, "LookupAddr")
-	},
+	"net.Dial":         fixNetDial,
+	"net.DialTimeout":  fixNetDialTimeout,
+	"net.LookupCNAME":  netResolverFix("LookupCNAME"),
+	"net.LookupHost":   netResolverFix("LookupHost"),
+	"net.LookupIP":     fixNetLookupIP,
+	"net.LookupPort":   fixNetLookupPort,
+	"net.LookupSRV":    fixNetLookupSRV,
+	"net.LookupMX":     netResolverFix("LookupMX"),
+	"net.LookupNS":     netResolverFix("LookupNS"),
+	"net.LookupTXT":    netResolverFix("LookupTXT"),
+	"net.LookupAddr":   netResolverFix("LookupAddr"),
 
 	// net/http
 	"net/http.Get":      fixHTTPGet,
@@ -74,6 +60,25 @@ func generateFix(pass *analysis.Pass, funcName string, ce *ast.CallExpr) *analys
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────
+
+// extractQualifier returns the package qualifier used at the call site with a
+// trailing dot (e.g. "http.", "h.", "exec."), or an empty string when the
+// package was dot-imported (import . "net/http") so callers can always
+// concatenate it directly with the identifier name.
+//
+// Blank imports (import _ "pkg") cannot produce call expressions for exported
+// functions, so that case never arises here.
+func extractQualifier(ce *ast.CallExpr) string {
+	sel, ok := ce.Fun.(*ast.SelectorExpr)
+	if !ok {
+		// Dot-import: function name is a plain *ast.Ident with no qualifier.
+		return ""
+	}
+	if ident, ok := sel.X.(*ast.Ident); ok {
+		return ident.Name + "."
+	}
+	return ""
+}
 
 // nodeStr converts an AST node back to its source representation using go/format.
 func nodeStr(fset *token.FileSet, node ast.Node) string {
@@ -176,215 +181,4 @@ func createFix(message string, ce *ast.CallExpr, newText string) *analysis.Sugge
 	}
 }
 
-// ── net/http fixes ────────────────────────────────────────────────────────────
-
-func fixHTTPNewRequest(pass *analysis.Pass, ce *ast.CallExpr, ctx string) *analysis.SuggestedFix {
-	if len(ce.Args) != 3 {
-		return nil
-	}
-	method := arg(pass, ce, 0)
-	url := arg(pass, ce, 1)
-	body := arg(pass, ce, 2)
-	newText := fmt.Sprintf("http.NewRequestWithContext(%s, %s, %s, %s)", ctx, method, url, body)
-	return createFix("Replace http.NewRequest with http.NewRequestWithContext", ce, newText)
-}
-
-func fixHTTPTestNewRequest(pass *analysis.Pass, ce *ast.CallExpr, ctx string) *analysis.SuggestedFix {
-	if len(ce.Args) != 3 {
-		return nil
-	}
-	method := arg(pass, ce, 0)
-	target := arg(pass, ce, 1)
-	body := arg(pass, ce, 2)
-	newText := fmt.Sprintf("httptest.NewRequestWithContext(%s, %s, %s, %s)", ctx, method, target, body)
-	return createFix("Replace httptest.NewRequest with httptest.NewRequestWithContext", ce, newText)
-}
-
-func fixHTTPGet(pass *analysis.Pass, ce *ast.CallExpr, ctx string) *analysis.SuggestedFix {
-	if len(ce.Args) != 1 {
-		return nil
-	}
-	url := arg(pass, ce, 0)
-	newText := fmt.Sprintf(`func() (*http.Response, error) {
-	req, err := http.NewRequestWithContext(%s, http.MethodGet, %s, http.NoBody)
-	if err != nil {
-		return nil, err
-	}
-	return http.DefaultClient.Do(req)
-}()`, ctx, url)
-	return createFix("Replace http.Get with http.NewRequestWithContext", ce, newText)
-}
-
-func fixHTTPHead(pass *analysis.Pass, ce *ast.CallExpr, ctx string) *analysis.SuggestedFix {
-	if len(ce.Args) != 1 {
-		return nil
-	}
-	url := arg(pass, ce, 0)
-	newText := fmt.Sprintf(`func() (*http.Response, error) {
-	req, err := http.NewRequestWithContext(%s, http.MethodHead, %s, http.NoBody)
-	if err != nil {
-		return nil, err
-	}
-	return http.DefaultClient.Do(req)
-}()`, ctx, url)
-	return createFix("Replace http.Head with http.NewRequestWithContext", ce, newText)
-}
-
-func fixHTTPPost(pass *analysis.Pass, ce *ast.CallExpr, ctx string) *analysis.SuggestedFix {
-	if len(ce.Args) != 3 {
-		return nil
-	}
-	url := arg(pass, ce, 0)
-	contentType := arg(pass, ce, 1)
-	body := arg(pass, ce, 2)
-	newText := fmt.Sprintf(`func() (*http.Response, error) {
-	req, err := http.NewRequestWithContext(%s, http.MethodPost, %s, %s)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", %s)
-	return http.DefaultClient.Do(req)
-}()`, ctx, url, body, contentType)
-	return createFix("Replace http.Post with http.NewRequestWithContext", ce, newText)
-}
-
-func fixHTTPPostForm(pass *analysis.Pass, ce *ast.CallExpr, ctx string) *analysis.SuggestedFix {
-	if len(ce.Args) != 2 {
-		return nil
-	}
-	url := arg(pass, ce, 0)
-	data := arg(pass, ce, 1)
-	newText := fmt.Sprintf(`func() (*http.Response, error) {
-	req, err := http.NewRequestWithContext(%s, http.MethodPost, %s, strings.NewReader(%s.Encode()))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	return http.DefaultClient.Do(req)
-}()`, ctx, url, data)
-	return createFix("Replace http.PostForm with http.NewRequestWithContext", ce, newText)
-}
-
-// ── os/exec fixes ─────────────────────────────────────────────────────────────
-
-func fixExecCommand(pass *analysis.Pass, ce *ast.CallExpr, ctx string) *analysis.SuggestedFix {
-	if len(ce.Args) < 1 {
-		return nil
-	}
-	args := make([]string, len(ce.Args))
-	for i := range ce.Args {
-		args[i] = arg(pass, ce, i)
-	}
-	newText := fmt.Sprintf("exec.CommandContext(%s, %s)", ctx, strings.Join(args, ", "))
-	return createFix("Replace exec.Command with exec.CommandContext", ce, newText)
-}
-
-// ── net fixes ────────────────────────────────────────────────────────────────
-
-func fixNetDial(pass *analysis.Pass, ce *ast.CallExpr, ctx string) *analysis.SuggestedFix {
-	if len(ce.Args) != 2 {
-		return nil
-	}
-	network := arg(pass, ce, 0)
-	address := arg(pass, ce, 1)
-	newText := fmt.Sprintf("(&net.Dialer{}).DialContext(%s, %s, %s)", ctx, network, address)
-	return createFix("Replace net.Dial with (*net.Dialer).DialContext", ce, newText)
-}
-
-func fixNetDialTimeout(pass *analysis.Pass, ce *ast.CallExpr, ctx string) *analysis.SuggestedFix {
-	if len(ce.Args) != 3 {
-		return nil
-	}
-	network := arg(pass, ce, 0)
-	address := arg(pass, ce, 1)
-	timeout := arg(pass, ce, 2)
-	newText := fmt.Sprintf("(&net.Dialer{Timeout: %s}).DialContext(%s, %s, %s)", timeout, ctx, network, address)
-	return createFix("Replace net.DialTimeout with (*net.Dialer).DialContext", ce, newText)
-}
-
-func fixNetListen(pass *analysis.Pass, ce *ast.CallExpr, ctx string) *analysis.SuggestedFix {
-	if len(ce.Args) != 2 {
-		return nil
-	}
-	network := arg(pass, ce, 0)
-	address := arg(pass, ce, 1)
-	newText := fmt.Sprintf("(&net.ListenConfig{}).Listen(%s, %s, %s)", ctx, network, address)
-	return createFix("Replace net.Listen with (*net.ListenConfig).Listen", ce, newText)
-}
-
-func fixNetListenPacket(pass *analysis.Pass, ce *ast.CallExpr, ctx string) *analysis.SuggestedFix {
-	if len(ce.Args) != 2 {
-		return nil
-	}
-	network := arg(pass, ce, 0)
-	address := arg(pass, ce, 1)
-	newText := fmt.Sprintf("(&net.ListenConfig{}).ListenPacket(%s, %s, %s)", ctx, network, address)
-	return createFix("Replace net.ListenPacket with (*net.ListenConfig).ListenPacket", ce, newText)
-}
-
-// fixNetResolver1 handles single-argument net.Lookup* functions that map
-// directly to (*net.Resolver).Method(ctx, arg).
-func fixNetResolver1(pass *analysis.Pass, ce *ast.CallExpr, ctx, method string) *analysis.SuggestedFix {
-	if len(ce.Args) != 1 {
-		return nil
-	}
-	lookupArg := arg(pass, ce, 0)
-	newText := fmt.Sprintf("(&net.Resolver{}).%s(%s, %s)", method, ctx, lookupArg)
-	return createFix(fmt.Sprintf("Replace net.%s with (*net.Resolver).%s", method, method), ce, newText)
-}
-
-func fixNetLookupIP(pass *analysis.Pass, ce *ast.CallExpr, ctx string) *analysis.SuggestedFix {
-	if len(ce.Args) != 1 {
-		return nil
-	}
-	host := arg(pass, ce, 0)
-	newText := fmt.Sprintf("(&net.Resolver{}).LookupIPAddr(%s, %s)", ctx, host)
-	return createFix("Replace net.LookupIP with (*net.Resolver).LookupIPAddr", ce, newText)
-}
-
-func fixNetLookupPort(pass *analysis.Pass, ce *ast.CallExpr, ctx string) *analysis.SuggestedFix {
-	if len(ce.Args) != 2 {
-		return nil
-	}
-	network := arg(pass, ce, 0)
-	service := arg(pass, ce, 1)
-	newText := fmt.Sprintf("(&net.Resolver{}).LookupPort(%s, %s, %s)", ctx, network, service)
-	return createFix("Replace net.LookupPort with (*net.Resolver).LookupPort", ce, newText)
-}
-
-func fixNetLookupSRV(pass *analysis.Pass, ce *ast.CallExpr, ctx string) *analysis.SuggestedFix {
-	if len(ce.Args) != 3 {
-		return nil
-	}
-	service := arg(pass, ce, 0)
-	proto := arg(pass, ce, 1)
-	name := arg(pass, ce, 2)
-	newText := fmt.Sprintf("(&net.Resolver{}).LookupSRV(%s, %s, %s, %s)", ctx, service, proto, name)
-	return createFix("Replace net.LookupSRV with (*net.Resolver).LookupSRV", ce, newText)
-}
-
-// ── crypto/tls fixes ──────────────────────────────────────────────────────────
-
-func fixTLSDial(pass *analysis.Pass, ce *ast.CallExpr, ctx string) *analysis.SuggestedFix {
-	if len(ce.Args) != 3 {
-		return nil
-	}
-	network := arg(pass, ce, 0)
-	address := arg(pass, ce, 1)
-	config := arg(pass, ce, 2)
-	newText := fmt.Sprintf("(&tls.Dialer{Config: %s}).DialContext(%s, %s, %s)", config, ctx, network, address)
-	return createFix("Replace tls.Dial with (*tls.Dialer).DialContext", ce, newText)
-}
-
-func fixTLSDialWithDialer(pass *analysis.Pass, ce *ast.CallExpr, ctx string) *analysis.SuggestedFix {
-	if len(ce.Args) != 4 {
-		return nil
-	}
-	dialer := arg(pass, ce, 0)
-	network := arg(pass, ce, 1)
-	address := arg(pass, ce, 2)
-	config := arg(pass, ce, 3)
-	newText := fmt.Sprintf("(&tls.Dialer{NetDialer: %s, Config: %s}).DialContext(%s, %s, %s)", dialer, config, ctx, network, address)
-	return createFix("Replace tls.DialWithDialer with (*tls.Dialer).DialContext", ce, newText)
-}
 
