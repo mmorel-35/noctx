@@ -11,6 +11,70 @@ import (
 	"golang.org/x/tools/go/analysis"
 )
 
+// fixFunc is the signature of a per-function fix generator.
+// It returns nil when a fix cannot be constructed (e.g. wrong argument count).
+type fixFunc func(pass *analysis.Pass, ce *ast.CallExpr, ctx string) *analysis.SuggestedFix
+
+// ngFuncFixes maps each flagged function name to its fix generator.
+// Entries are grouped by package to mirror ngFuncMessages.
+var ngFuncFixes = map[string]fixFunc{
+	// net
+	"net.Listen":      fixNetListen,
+	"net.ListenPacket": fixNetListenPacket,
+	"net.Dial":        fixNetDial,
+	"net.DialTimeout": fixNetDialTimeout,
+	"net.LookupCNAME": func(pass *analysis.Pass, ce *ast.CallExpr, ctx string) *analysis.SuggestedFix {
+		return fixNetResolver1(pass, ce, ctx, "LookupCNAME")
+	},
+	"net.LookupHost": func(pass *analysis.Pass, ce *ast.CallExpr, ctx string) *analysis.SuggestedFix {
+		return fixNetResolver1(pass, ce, ctx, "LookupHost")
+	},
+	"net.LookupIP": fixNetLookupIP,
+	"net.LookupPort": fixNetLookupPort,
+	"net.LookupSRV": fixNetLookupSRV,
+	"net.LookupMX": func(pass *analysis.Pass, ce *ast.CallExpr, ctx string) *analysis.SuggestedFix {
+		return fixNetResolver1(pass, ce, ctx, "LookupMX")
+	},
+	"net.LookupNS": func(pass *analysis.Pass, ce *ast.CallExpr, ctx string) *analysis.SuggestedFix {
+		return fixNetResolver1(pass, ce, ctx, "LookupNS")
+	},
+	"net.LookupTXT": func(pass *analysis.Pass, ce *ast.CallExpr, ctx string) *analysis.SuggestedFix {
+		return fixNetResolver1(pass, ce, ctx, "LookupTXT")
+	},
+	"net.LookupAddr": func(pass *analysis.Pass, ce *ast.CallExpr, ctx string) *analysis.SuggestedFix {
+		return fixNetResolver1(pass, ce, ctx, "LookupAddr")
+	},
+
+	// net/http
+	"net/http.Get":      fixHTTPGet,
+	"net/http.Head":     fixHTTPHead,
+	"net/http.Post":     fixHTTPPost,
+	"net/http.PostForm": fixHTTPPostForm,
+	"net/http.NewRequest": fixHTTPNewRequest,
+
+	// net/http/httptest
+	"net/http/httptest.NewRequest": fixHTTPTestNewRequest,
+
+	// os/exec
+	"os/exec.Command": fixExecCommand,
+
+	// crypto/tls
+	"crypto/tls.Dial":           fixTLSDial,
+	"crypto/tls.DialWithDialer": fixTLSDialWithDialer,
+}
+
+// generateFix looks up and calls the fix generator for funcName.
+// It returns nil when no fix is available.
+func generateFix(pass *analysis.Pass, funcName string, ce *ast.CallExpr) *analysis.SuggestedFix {
+	fn, ok := ngFuncFixes[funcName]
+	if !ok {
+		return nil
+	}
+	return fn(pass, ce, detectContext(pass, ce))
+}
+
+// ── helpers ──────────────────────────────────────────────────────────────────
+
 // nodeStr converts an AST node back to its source representation using go/format.
 func nodeStr(fset *token.FileSet, node ast.Node) string {
 	var buf bytes.Buffer
@@ -57,8 +121,7 @@ func detectContext(pass *analysis.Pass, ce *ast.CallExpr) string {
 }
 
 // findContainingFunc returns the innermost *ast.FuncDecl or *ast.FuncLit that
-// contains pos. Walking the AST in pre-order and updating on each match ensures
-// the last update is the deepest (innermost) containing function.
+// contains pos.
 func findContainingFunc(files []*ast.File, pos token.Pos) ast.Node {
 	var result ast.Node
 	for _, file := range files {
@@ -98,8 +161,8 @@ func isContextType(pass *analysis.Pass, expr ast.Expr) bool {
 	return t.String() == "context.Context"
 }
 
-// createFix builds an analysis.SuggestedFix that replaces the entire call expression
-// with newText.
+// createFix builds an analysis.SuggestedFix that replaces the entire call
+// expression with newText.
 func createFix(message string, ce *ast.CallExpr, newText string) *analysis.SuggestedFix {
 	return &analysis.SuggestedFix{
 		Message: message,
@@ -113,58 +176,7 @@ func createFix(message string, ce *ast.CallExpr, newText string) *analysis.Sugge
 	}
 }
 
-// generateFix dispatches to the appropriate fix generator for funcName.
-// It returns nil when no fix is available for the given function.
-func generateFix(pass *analysis.Pass, funcName string, ce *ast.CallExpr) *analysis.SuggestedFix {
-	ctx := detectContext(pass, ce)
-	switch funcName {
-	case "net/http.NewRequest":
-		return fixHTTPNewRequest(pass, ce, ctx)
-	case "net/http/httptest.NewRequest":
-		return fixHTTPTestNewRequest(pass, ce, ctx)
-	case "net/http.Get":
-		return fixHTTPGet(pass, ce, ctx)
-	case "net/http.Head":
-		return fixHTTPHead(pass, ce, ctx)
-	case "net/http.Post":
-		return fixHTTPPost(pass, ce, ctx)
-	case "net/http.PostForm":
-		return fixHTTPPostForm(pass, ce, ctx)
-	case "os/exec.Command":
-		return fixExecCommand(pass, ce, ctx)
-	case "net.Dial":
-		return fixNetDial(pass, ce, ctx)
-	case "net.DialTimeout":
-		return fixNetDialTimeout(pass, ce, ctx)
-	case "net.Listen":
-		return fixNetListen(pass, ce, ctx)
-	case "net.ListenPacket":
-		return fixNetListenPacket(pass, ce, ctx)
-	case "net.LookupCNAME":
-		return fixNetLookup1(pass, ce, ctx, "LookupCNAME")
-	case "net.LookupHost":
-		return fixNetLookup1(pass, ce, ctx, "LookupHost")
-	case "net.LookupIP":
-		return fixNetLookupIP(pass, ce, ctx)
-	case "net.LookupMX":
-		return fixNetLookup1(pass, ce, ctx, "LookupMX")
-	case "net.LookupNS":
-		return fixNetLookup1(pass, ce, ctx, "LookupNS")
-	case "net.LookupTXT":
-		return fixNetLookup1(pass, ce, ctx, "LookupTXT")
-	case "net.LookupAddr":
-		return fixNetLookup1(pass, ce, ctx, "LookupAddr")
-	case "net.LookupPort":
-		return fixNetLookupPort(pass, ce, ctx)
-	case "net.LookupSRV":
-		return fixNetLookupSRV(pass, ce, ctx)
-	case "crypto/tls.Dial":
-		return fixTLSDial(pass, ce, ctx)
-	case "crypto/tls.DialWithDialer":
-		return fixTLSDialWithDialer(pass, ce, ctx)
-	}
-	return nil
-}
+// ── net/http fixes ────────────────────────────────────────────────────────────
 
 func fixHTTPNewRequest(pass *analysis.Pass, ce *ast.CallExpr, ctx string) *analysis.SuggestedFix {
 	if len(ce.Args) != 3 {
@@ -253,6 +265,8 @@ func fixHTTPPostForm(pass *analysis.Pass, ce *ast.CallExpr, ctx string) *analysi
 	return createFix("Replace http.PostForm with http.NewRequestWithContext", ce, newText)
 }
 
+// ── os/exec fixes ─────────────────────────────────────────────────────────────
+
 func fixExecCommand(pass *analysis.Pass, ce *ast.CallExpr, ctx string) *analysis.SuggestedFix {
 	if len(ce.Args) < 1 {
 		return nil
@@ -264,6 +278,8 @@ func fixExecCommand(pass *analysis.Pass, ce *ast.CallExpr, ctx string) *analysis
 	newText := fmt.Sprintf("exec.CommandContext(%s, %s)", ctx, strings.Join(args, ", "))
 	return createFix("Replace exec.Command with exec.CommandContext", ce, newText)
 }
+
+// ── net fixes ────────────────────────────────────────────────────────────────
 
 func fixNetDial(pass *analysis.Pass, ce *ast.CallExpr, ctx string) *analysis.SuggestedFix {
 	if len(ce.Args) != 2 {
@@ -306,7 +322,9 @@ func fixNetListenPacket(pass *analysis.Pass, ce *ast.CallExpr, ctx string) *anal
 	return createFix("Replace net.ListenPacket with (*net.ListenConfig).ListenPacket", ce, newText)
 }
 
-func fixNetLookup1(pass *analysis.Pass, ce *ast.CallExpr, ctx string, method string) *analysis.SuggestedFix {
+// fixNetResolver1 handles single-argument net.Lookup* functions that map
+// directly to (*net.Resolver).Method(ctx, arg).
+func fixNetResolver1(pass *analysis.Pass, ce *ast.CallExpr, ctx, method string) *analysis.SuggestedFix {
 	if len(ce.Args) != 1 {
 		return nil
 	}
@@ -345,6 +363,8 @@ func fixNetLookupSRV(pass *analysis.Pass, ce *ast.CallExpr, ctx string) *analysi
 	return createFix("Replace net.LookupSRV with (*net.Resolver).LookupSRV", ce, newText)
 }
 
+// ── crypto/tls fixes ──────────────────────────────────────────────────────────
+
 func fixTLSDial(pass *analysis.Pass, ce *ast.CallExpr, ctx string) *analysis.SuggestedFix {
 	if len(ce.Args) != 3 {
 		return nil
@@ -367,3 +387,4 @@ func fixTLSDialWithDialer(pass *analysis.Pass, ce *ast.CallExpr, ctx string) *an
 	newText := fmt.Sprintf("(&tls.Dialer{NetDialer: %s, Config: %s}).DialContext(%s, %s, %s)", dialer, config, ctx, network, address)
 	return createFix("Replace tls.DialWithDialer with (*tls.Dialer).DialContext", ce, newText)
 }
+
