@@ -2,9 +2,11 @@ package fixes
 
 import (
 	"bytes"
+	"fmt"
 	"go/ast"
 	"go/format"
 	"go/token"
+	"go/types"
 	"strings"
 
 	"golang.org/x/tools/go/analysis"
@@ -52,13 +54,28 @@ var funcFixes = map[string]fixFunc{
 
 // Generate looks up and calls the fix generator for funcName.
 // It returns nil when no fix is available for the function.
+// When the fix uses context.Background() (or any context.* expression),
+// a TextEdit to add the "context" import is also included if it is missing.
 func Generate(pass *analysis.Pass, funcName string, ce *ast.CallExpr) *analysis.SuggestedFix {
 	fn, ok := funcFixes[funcName]
 	if !ok {
 		return nil
 	}
 	cd := NewContextDetector(NewGoVersionDetector())
-	return fn(pass, ce, cd.DetectContext(pass, ce))
+	ctx := cd.DetectContext(pass, ce)
+	fix := fn(pass, ce, ctx)
+	if fix == nil {
+		return nil
+	}
+
+	// If the fix uses a context.* expression, ensure "context" is imported.
+	if strings.HasPrefix(ctx, "context.") {
+		if edit := addImportEdit(pass, ce, "context"); edit != nil {
+			fix.TextEdits = append(fix.TextEdits, *edit)
+		}
+	}
+
+	return fix
 }
 
 // ── ContextDetector ───────────────────────────────────────────────────────────
@@ -76,9 +93,9 @@ func NewContextDetector(vd *GoVersionDetector) *ContextDetector {
 
 // DetectContext finds the best context expression to use at the call site.
 // It searches the enclosing function or func-literal for a context.Context
-// parameter first. If none is found it checks whether t.Context() is
-// appropriate (Go 1.24+ test functions), and finally falls back to
-// context.Background().
+// parameter first. If none is found it checks whether a *testing.T/.B
+// parameter is available in a Test*/Benchmark* function on Go 1.24+, and
+// finally falls back to context.Background().
 func (cd *ContextDetector) DetectContext(pass *analysis.Pass, ce *ast.CallExpr) string {
 	// 1. Look for a context.Context parameter in the enclosing function/literal.
 	fn := findContainingFunc(pass.Files, ce.Pos())
@@ -99,13 +116,16 @@ func (cd *ContextDetector) DetectContext(pass *analysis.Pass, ce *ast.CallExpr) 
 		}
 	}
 
-	// 2. In test functions on Go 1.24+, suggest t.Context().
+	// 2. In Test*/Benchmark* functions on Go 1.24+, suggest <t>.Context()
+	//    using the actual name of the *testing.T / *testing.B parameter.
 	vd := cd.versionDetector
 	if vd == nil {
 		vd = NewGoVersionDetector()
 	}
-	if cd.hasTestingImport(pass) && vd.IsGo124OrGreater(pass) && cd.isInTestFunction(pass, ce) {
-		return "t.Context()"
+	if cd.hasTestingImport(pass) && vd.IsGo124OrGreater(pass) {
+		if tCtx := cd.findTestingContext(pass, ce); tCtx != "" {
+			return tCtx
+		}
 	}
 
 	// 3. Fallback.
@@ -125,21 +145,32 @@ func (cd *ContextDetector) hasTestingImport(pass *analysis.Pass) bool {
 	return false
 }
 
-// isInTestFunction reports whether the call expression is inside a function
-// whose name starts with Test, Benchmark, or Example.
-func (cd *ContextDetector) isInTestFunction(pass *analysis.Pass, ce *ast.CallExpr) bool {
+// findTestingContext looks for a *testing.T or *testing.B parameter in the
+// enclosing Test* or Benchmark* function declaration and returns
+// "<paramName>.Context()" if found, or "" otherwise.
+// Example* functions are excluded because they do not receive a *testing.T.
+func (cd *ContextDetector) findTestingContext(pass *analysis.Pass, ce *ast.CallExpr) string {
 	fn := findContainingFunc(pass.Files, ce.Pos())
 	if fn == nil {
-		return false
+		return ""
 	}
 	decl, ok := fn.(*ast.FuncDecl)
 	if !ok || decl.Name == nil {
-		return false
+		return ""
 	}
 	name := decl.Name.Name
-	return strings.HasPrefix(name, "Test") ||
-		strings.HasPrefix(name, "Benchmark") ||
-		strings.HasPrefix(name, "Example")
+	if !strings.HasPrefix(name, "Test") && !strings.HasPrefix(name, "Benchmark") {
+		return ""
+	}
+	if decl.Type.Params == nil {
+		return ""
+	}
+	for _, param := range decl.Type.Params.List {
+		if isTestingTOrB(pass, param.Type) && len(param.Names) > 0 {
+			return param.Names[0].Name + ".Context()"
+		}
+	}
+	return ""
 }
 
 // ── VariableAssignmentDetector ────────────────────────────────────────────────
@@ -305,7 +336,10 @@ func findContainingFunc(files []*ast.File, pos token.Pos) ast.Node {
 	return result
 }
 
-// isContextType reports whether the expression represents the context.Context type.
+// isContextType reports whether the expression represents the context.Context
+// interface. It uses the types.Named package-path check to match the stdlib
+// context.Context reliably, even when the analyzed package imports a different
+// package also named "context".
 func isContextType(pass *analysis.Pass, expr ast.Expr) bool {
 	if pass.TypesInfo == nil {
 		return false
@@ -314,5 +348,100 @@ func isContextType(pass *analysis.Pass, expr ast.Expr) bool {
 	if t == nil {
 		return false
 	}
-	return t.String() == "context.Context"
+	named, ok := t.(*types.Named)
+	if !ok {
+		return false
+	}
+	obj := named.Obj()
+	if obj == nil || obj.Pkg() == nil {
+		return false
+	}
+	return obj.Pkg().Path() == "context" && obj.Name() == "Context"
+}
+
+// isTestingTOrB reports whether the expression is of type *testing.T or
+// *testing.B.
+func isTestingTOrB(pass *analysis.Pass, expr ast.Expr) bool {
+	if pass.TypesInfo == nil {
+		return false
+	}
+	t := pass.TypesInfo.TypeOf(expr)
+	if t == nil {
+		return false
+	}
+	ptr, ok := t.(*types.Pointer)
+	if !ok {
+		return false
+	}
+	named, ok := ptr.Elem().(*types.Named)
+	if !ok {
+		return false
+	}
+	obj := named.Obj()
+	if obj == nil || obj.Pkg() == nil {
+		return false
+	}
+	return obj.Pkg().Path() == "testing" && (obj.Name() == "T" || obj.Name() == "B")
+}
+
+// addImportEdit returns a *analysis.TextEdit that inserts an import for
+// pkgPath into the file that contains ce, or nil if the import already exists.
+//
+// For a parenthesised import block `import ( … )`, the new spec is inserted
+// before the closing paren with a leading tab (matching Go's formatting
+// conventions). For a single-line import or a file with no imports at all, a
+// new import statement is appended on the next line. The result is always
+// valid Go — goimports can re-sort it afterwards if desired.
+func addImportEdit(pass *analysis.Pass, ce *ast.CallExpr, pkgPath string) *analysis.TextEdit {
+	// Find the file that contains the call expression.
+	var file *ast.File
+	for _, f := range pass.Files {
+		if f.Pos() <= ce.Pos() && ce.Pos() <= f.End() {
+			file = f
+			break
+		}
+	}
+	if file == nil {
+		return nil
+	}
+
+	// Check whether the package is already imported.
+	for _, imp := range file.Imports {
+		if strings.Trim(imp.Path.Value, `"`) == pkgPath {
+			return nil
+		}
+	}
+
+	// Try to find an existing import GenDecl to insert into.
+	for _, decl := range file.Decls {
+		genDecl, ok := decl.(*ast.GenDecl)
+		if !ok || genDecl.Tok != token.IMPORT {
+			continue
+		}
+		if genDecl.Lparen.IsValid() {
+			// Parenthesised import block: insert before the closing paren.
+			// The leading tab matches standard gofmt formatting for import specs.
+			return &analysis.TextEdit{
+				Pos:     genDecl.Rparen,
+				End:     genDecl.Rparen,
+				NewText: []byte(fmt.Sprintf("\t%q\n", pkgPath)),
+			}
+		}
+		// Single unparenthesised import: genDecl.End() is the position
+		// immediately after the closing quote of the path literal, i.e. the
+		// position of the newline that terminates the line. Inserting
+		// "\nimport …" there places the new statement on the very next line.
+		return &analysis.TextEdit{
+			Pos:     genDecl.End(),
+			End:     genDecl.End(),
+			NewText: []byte(fmt.Sprintf("\nimport %q", pkgPath)),
+		}
+	}
+
+	// No import block at all: insert after the package clause.
+	return &analysis.TextEdit{
+		Pos:     file.Name.End(),
+		End:     file.Name.End(),
+		NewText: []byte(fmt.Sprintf("\n\nimport %q", pkgPath)),
+	}
 }

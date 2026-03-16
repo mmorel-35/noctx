@@ -41,9 +41,10 @@ func (g *GoVersionDetector) IsGo124OrGreater(pass *analysis.Pass) bool {
 
 	pkgVersion := pass.Pkg.GoVersion()
 	if pkgVersion == "" {
-		// Empty version string can mean a development build or a malformed module
-		// configuration; assume modern Go to be conservative about t.Context().
-		return true
+		// Empty version string means the version is unknown; treat it as older
+		// than 1.24 to avoid suggesting t.Context() on packages that may not
+		// support it.
+		return false
 	}
 
 	raw := strings.TrimPrefix(pkgVersion, "go")

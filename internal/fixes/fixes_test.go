@@ -27,10 +27,10 @@ func TestGoVersionDetector_SkipDetection(t *testing.T) {
 func TestGoVersionDetector_NilPkg(t *testing.T) {
 	vd := fixes.NewGoVersionDetector()
 	pass := &analysis.Pass{Pkg: nil}
-	// When Pkg is nil and skip is false, must return false (cannot determine version).
-	got := vd.IsGo124OrGreater(pass)
-	// We only assert no panic; the actual value depends on build tags.
-	_ = got
+	// When Pkg is nil, must return false (cannot determine version).
+	if vd.IsGo124OrGreater(pass) {
+		t.Error("IsGo124OrGreater with nil Pkg: got true, want false")
+	}
 }
 
 // ── ContextDetector ───────────────────────────────────────────────────────────
@@ -60,6 +60,22 @@ func TestContextDetector_NilPkg_FallsBack(t *testing.T) {
 	want := "context.Background()"
 	if got != want {
 		t.Errorf("DetectContext: got %q, want %q", got, want)
+	}
+}
+
+func TestContextDetector_NewContextDetectorNilVD(t *testing.T) {
+	// NewContextDetector(nil) should not panic and should fall back correctly.
+	detector := fixes.NewContextDetector(nil)
+	fset := token.NewFileSet()
+	expr, err := parser.ParseExpr(`f()`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	callExpr := expr.(*ast.CallExpr)
+	pass := &analysis.Pass{Fset: fset, Files: []*ast.File{}, Pkg: nil}
+	got := detector.DetectContext(pass, callExpr)
+	if got != "context.Background()" {
+		t.Errorf("DetectContext with nil vd: got %q, want %q", got, "context.Background()")
 	}
 }
 

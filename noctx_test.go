@@ -38,6 +38,7 @@ func TestSuggestedFixes(t *testing.T) {
 		{desc: "fix_tls"},
 		{desc: "fix_http_methods"},
 		{desc: "fix_httptest"},
+		{desc: "fix_context_import"},
 	}
 
 	for _, test := range testCases {

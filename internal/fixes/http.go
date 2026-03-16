@@ -97,5 +97,10 @@ func fixHTTPPostForm(pass *analysis.Pass, ce *ast.CallExpr, ctx string) *analysi
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	return %sDefaultClient.Do(req)
 }()`, q, q, ctx, q, url, data, q)
-	return createFix(fmt.Sprintf("Replace %sPostForm with %sNewRequestWithContext", q, q), ce, newText)
+	fix := createFix(fmt.Sprintf("Replace %sPostForm with %sNewRequestWithContext", q, q), ce, newText)
+	// The fix uses strings.NewReader; ensure "strings" is imported.
+	if edit := addImportEdit(pass, ce, "strings"); edit != nil {
+		fix.TextEdits = append(fix.TextEdits, *edit)
+	}
+	return fix
 }
