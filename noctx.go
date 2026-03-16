@@ -2,12 +2,16 @@ package noctx
 
 import (
 	"fmt"
+	"go/ast"
+	"go/token"
 	"maps"
 	"slices"
 
 	"github.com/gostaticanalysis/analysisutil"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/buildssa"
+	"golang.org/x/tools/go/analysis/passes/inspect"
+	"golang.org/x/tools/go/ast/inspector"
 )
 
 var Analyzer = &analysis.Analyzer{
@@ -17,6 +21,7 @@ var Analyzer = &analysis.Analyzer{
 	RunDespiteErrors: false,
 	Requires: []*analysis.Analyzer{
 		buildssa.Analyzer,
+		inspect.Analyzer,
 	},
 	ResultType: nil,
 	FactTypes:  nil,
@@ -91,12 +96,40 @@ func Run(pass *analysis.Pass) (interface{}, error) {
 		panic(fmt.Sprintf("%T is not *buildssa.SSA", pass.ResultOf[buildssa.Analyzer]))
 	}
 
+	insp, ok := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
+	if !ok {
+		panic(fmt.Sprintf("%T is not *inspector.Inspector", pass.ResultOf[inspect.Analyzer]))
+	}
+
+	// Collect call expressions indexed by Lparen to match SSA instruction positions.
+	// SSA call instructions use the Lparen position of the ast.CallExpr.
+	callExprs := make(map[token.Pos]*ast.CallExpr)
+	nodeFilter := []ast.Node{(*ast.CallExpr)(nil)}
+	insp.Preorder(nodeFilter, func(n ast.Node) {
+		ce := n.(*ast.CallExpr)
+		callExprs[ce.Lparen] = ce
+	})
+
 	for _, sf := range ssa.SrcFuncs {
 		for _, b := range sf.Blocks {
 			for _, instr := range b.Instrs {
 				for _, ngFunc := range ngFuncs {
 					if analysisutil.Called(instr, nil, ngFunc) {
-						pass.Reportf(instr.Pos(), "%s %s", ngFunc.FullName(), ngFuncMessages[ngFunc.FullName()])
+						funcName := ngFunc.FullName()
+						msg := fmt.Sprintf("%s %s", funcName, ngFuncMessages[funcName])
+
+						diag := analysis.Diagnostic{
+							Pos:     instr.Pos(),
+							Message: msg,
+						}
+
+						if ce, exists := callExprs[instr.Pos()]; exists {
+							if fix := generateFix(pass, funcName, ce); fix != nil {
+								diag.SuggestedFixes = []analysis.SuggestedFix{*fix}
+							}
+						}
+
+						pass.Report(diag)
 
 						break
 					}
