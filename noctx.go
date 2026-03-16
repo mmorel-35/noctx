@@ -8,6 +8,7 @@ import (
 	"slices"
 
 	"github.com/gostaticanalysis/analysisutil"
+	"github.com/sonatard/noctx/internal/fixes"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/buildssa"
 	"golang.org/x/tools/go/analysis/passes/inspect"
@@ -124,7 +125,7 @@ func Run(pass *analysis.Pass) (interface{}, error) {
 						}
 
 						if ce, exists := callExprs[instr.Pos()]; exists {
-							if fix := generateFix(pass, funcName, ce); fix != nil {
+							if fix := fixes.Generate(pass, funcName, ce); fix != nil {
 								diag.SuggestedFixes = []analysis.SuggestedFix{*fix}
 							}
 						}

@@ -1,4 +1,4 @@
-package noctx
+package fixes
 
 import (
 	"fmt"
@@ -6,8 +6,6 @@ import (
 
 	"golang.org/x/tools/go/analysis"
 )
-
-// ── crypto/tls fixes ──────────────────────────────────────────────────────────
 
 func fixTLSDial(pass *analysis.Pass, ce *ast.CallExpr, ctx string) *analysis.SuggestedFix {
 	if len(ce.Args) != 3 {

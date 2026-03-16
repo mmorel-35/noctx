@@ -1,4 +1,4 @@
-package noctx
+package fixes
 
 import (
 	"bytes"
@@ -13,9 +13,9 @@ import (
 // It returns nil when a fix cannot be constructed (e.g. wrong argument count).
 type fixFunc func(pass *analysis.Pass, ce *ast.CallExpr, ctx string) *analysis.SuggestedFix
 
-// ngFuncFixes maps each flagged function name to its fix generator.
-// Entries are grouped by package to mirror ngFuncMessages.
-var ngFuncFixes = map[string]fixFunc{
+// funcFixes maps each flagged function name to its fix generator.
+// Entries are grouped by package to mirror noctx.ngFuncMessages.
+var funcFixes = map[string]fixFunc{
 	// net
 	"net.Listen":       fixNetListen,
 	"net.ListenPacket": fixNetListenPacket,
@@ -32,10 +32,10 @@ var ngFuncFixes = map[string]fixFunc{
 	"net.LookupAddr":   netResolverFix("LookupAddr"),
 
 	// net/http
-	"net/http.Get":      fixHTTPGet,
-	"net/http.Head":     fixHTTPHead,
-	"net/http.Post":     fixHTTPPost,
-	"net/http.PostForm": fixHTTPPostForm,
+	"net/http.Get":        fixHTTPGet,
+	"net/http.Head":       fixHTTPHead,
+	"net/http.Post":       fixHTTPPost,
+	"net/http.PostForm":   fixHTTPPostForm,
 	"net/http.NewRequest": fixHTTPNewRequest,
 
 	// net/http/httptest
@@ -49,10 +49,10 @@ var ngFuncFixes = map[string]fixFunc{
 	"crypto/tls.DialWithDialer": fixTLSDialWithDialer,
 }
 
-// generateFix looks up and calls the fix generator for funcName.
-// It returns nil when no fix is available.
-func generateFix(pass *analysis.Pass, funcName string, ce *ast.CallExpr) *analysis.SuggestedFix {
-	fn, ok := ngFuncFixes[funcName]
+// Generate looks up and calls the fix generator for funcName.
+// It returns nil when no fix is available for the function.
+func Generate(pass *analysis.Pass, funcName string, ce *ast.CallExpr) *analysis.SuggestedFix {
+	fn, ok := funcFixes[funcName]
 	if !ok {
 		return nil
 	}
@@ -102,8 +102,8 @@ func arg(pass *analysis.Pass, ce *ast.CallExpr, i int) string {
 }
 
 // detectContext finds the best context expression to use at the call site.
-// It searches the enclosing function/func-literal for a context.Context parameter.
-// If none is found, it falls back to context.Background().
+// It searches the enclosing function or func-literal for a context.Context
+// parameter. If none is found, it falls back to context.Background().
 func detectContext(pass *analysis.Pass, ce *ast.CallExpr) string {
 	fn := findContainingFunc(pass.Files, ce.Pos())
 	if fn != nil {
@@ -180,5 +180,3 @@ func createFix(message string, ce *ast.CallExpr, newText string) *analysis.Sugge
 		},
 	}
 }
-
-

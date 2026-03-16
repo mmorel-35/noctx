@@ -1,14 +1,11 @@
-package noctx
+package fixes
 
 import (
 	"fmt"
-
 	"go/ast"
 
 	"golang.org/x/tools/go/analysis"
 )
-
-// ── net/http and net/http/httptest fixes ──────────────────────────────────────
 
 func fixHTTPNewRequest(pass *analysis.Pass, ce *ast.CallExpr, ctx string) *analysis.SuggestedFix {
 	if len(ce.Args) != 3 {

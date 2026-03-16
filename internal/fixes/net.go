@@ -1,4 +1,4 @@
-package noctx
+package fixes
 
 import (
 	"fmt"
@@ -6,8 +6,6 @@ import (
 
 	"golang.org/x/tools/go/analysis"
 )
-
-// ── net fixes ────────────────────────────────────────────────────────────────
 
 func fixNetDial(pass *analysis.Pass, ce *ast.CallExpr, ctx string) *analysis.SuggestedFix {
 	if len(ce.Args) != 2 {
