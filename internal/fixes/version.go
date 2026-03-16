@@ -28,7 +28,9 @@ func (g *GoVersionDetector) IsGo124OrGreater(pass *analysis.Pass) bool {
 	}
 
 	// Prior to go1.22, pass.Pkg.GoVersion() only reflects the toolchain version,
-	// which is of no use here, so disable the check on earlier toolchains.
+	// not the module's declared minimum version, so the result would be
+	// unreliable. Disable the t.Context() suggestion on toolchains older than
+	// go1.22 to avoid false positives.
 	if !slices.Contains(build.Default.ReleaseTags, "go1.22") {
 		return false
 	}

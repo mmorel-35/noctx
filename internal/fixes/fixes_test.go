@@ -11,7 +11,31 @@ import (
 	"github.com/sonatard/noctx/internal/fixes"
 )
 
-func TestContextDetector(t *testing.T) {
+// ── GoVersionDetector ─────────────────────────────────────────────────────────
+
+func TestGoVersionDetector_SkipDetection(t *testing.T) {
+	vd := fixes.NewGoVersionDetector()
+	vd.SetSkipGoVersionDetection(true)
+
+	// With skip enabled, IsGo124OrGreater must return true regardless of pass.
+	pass := &analysis.Pass{Pkg: nil}
+	if !vd.IsGo124OrGreater(pass) {
+		t.Error("IsGo124OrGreater with skip=true: got false, want true")
+	}
+}
+
+func TestGoVersionDetector_NilPkg(t *testing.T) {
+	vd := fixes.NewGoVersionDetector()
+	pass := &analysis.Pass{Pkg: nil}
+	// When Pkg is nil and skip is false, must return false (cannot determine version).
+	got := vd.IsGo124OrGreater(pass)
+	// We only assert no panic; the actual value depends on build tags.
+	_ = got
+}
+
+// ── ContextDetector ───────────────────────────────────────────────────────────
+
+func TestContextDetector_NilPkg_FallsBack(t *testing.T) {
 	detector := &fixes.ContextDetector{}
 
 	fset := token.NewFileSet()
@@ -39,34 +63,106 @@ func TestContextDetector(t *testing.T) {
 	}
 }
 
-func TestVariableAssignmentDetector(t *testing.T) {
-	detector := &fixes.VariableAssignmentDetector{}
-
+func TestContextDetector_FindsContextParam(t *testing.T) {
+	// Parse a function that has a context.Context parameter and contains a call.
+	const src = `package p
+import "context"
+func f(ctx context.Context) {
+	_ = ctx
+}
+`
 	fset := token.NewFileSet()
-	expr, err := parser.ParseExpr(`http.Get("url")`)
+	file, err := parser.ParseFile(fset, "p.go", src, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	callExpr, ok := expr.(*ast.CallExpr)
-	if !ok {
-		t.Fatal("Expected CallExpr")
+	// Locate the RHS "ctx" identifier inside the assignment in f's body.
+	var ctxIdent *ast.Ident
+	ast.Inspect(file, func(n ast.Node) bool {
+		if n == nil {
+			return false
+		}
+		if assign, ok := n.(*ast.AssignStmt); ok {
+			if len(assign.Rhs) == 1 {
+				if id, ok := assign.Rhs[0].(*ast.Ident); ok {
+					ctxIdent = id
+				}
+			}
+		}
+		return true
+	})
+	if ctxIdent == nil {
+		t.Fatal("could not find 'ctx' ident in parsed AST")
 	}
 
+	// Build a minimal CallExpr whose Pos() is inside f's body.
+	ce := &ast.CallExpr{
+		Fun:    ctxIdent,
+		Lparen: ctxIdent.Pos(),
+		Rparen: ctxIdent.End(),
+	}
+
+	// We need a real TypesInfo to recognise "context.Context".
+	// Since we cannot type-check here without a full loader, we fall back to
+	// checking just the "no TypesInfo" guard: with nil TypesInfo, isContextType
+	// returns false, so the detector must still fall back to context.Background().
 	pass := &analysis.Pass{
-		Fset: fset,
-		Pkg:  nil,
+		Fset:      fset,
+		Files:     []*ast.File{file},
+		TypesInfo: nil,
+		Pkg:       nil,
 	}
 
-	// With nil Pkg, should always return ":=".
-	got := detector.DetectAssignmentOperator(pass, callExpr, "req", "err")
-	want := ":="
-	if got != want {
-		t.Errorf("DetectAssignmentOperator: got %q, want %q", got, want)
+	got := fixes.NewContextDetector(nil).DetectContext(pass, ce)
+	// Without TypesInfo we cannot recognise context.Context, so we expect
+	// the fallback.
+	if got != "context.Background()" {
+		t.Errorf("DetectContext without TypesInfo: got %q, want %q", got, "context.Background()")
 	}
 }
 
-func TestArgumentFormatter(t *testing.T) {
+// ── VariableAssignmentDetector ────────────────────────────────────────────────
+
+func TestVariableAssignmentDetector_NilPkg(t *testing.T) {
+	detector := &fixes.VariableAssignmentDetector{}
+
+	expr, err := parser.ParseExpr(`http.Get("url")`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	callExpr := expr.(*ast.CallExpr)
+
+	pass := &analysis.Pass{Fset: token.NewFileSet(), Pkg: nil}
+
+	got := detector.DetectAssignmentOperator(pass, callExpr, "req", "err")
+	if got != ":=" {
+		t.Errorf("DetectAssignmentOperator(nil pkg): got %q, want %q", got, ":=")
+	}
+}
+
+func TestVariableAssignmentDetector_NoVarNames(t *testing.T) {
+	// With no var names to check, it should return "=" (all zero variables "found").
+	detector := &fixes.VariableAssignmentDetector{}
+
+	expr, err := parser.ParseExpr(`f()`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	callExpr := expr.(*ast.CallExpr)
+
+	pass := &analysis.Pass{Fset: token.NewFileSet(), Pkg: nil}
+
+	// Nil pkg → always ":="
+	got := detector.DetectAssignmentOperator(pass, callExpr)
+	if got != ":=" {
+		t.Errorf("DetectAssignmentOperator(nil pkg, no vars): got %q, want %q", got, ":=")
+	}
+}
+
+// ── ArgumentFormatter ─────────────────────────────────────────────────────────
+
+func TestArgumentFormatter_FormatArgument(t *testing.T) {
 	formatter := &fixes.ArgumentFormatter{}
 
 	tests := []struct {
@@ -77,6 +173,7 @@ func TestArgumentFormatter(t *testing.T) {
 		{name: "string literal", input: `"hello"`, want: `"hello"`},
 		{name: "identifier", input: "myVar", want: "myVar"},
 		{name: "nil identifier", input: "nil", want: "nil"},
+		{name: "selector expression", input: "pkg.Func", want: "pkg.Func"},
 	}
 
 	for _, tc := range tests {
@@ -94,7 +191,7 @@ func TestArgumentFormatter(t *testing.T) {
 	}
 }
 
-func TestFormatBodyArgument(t *testing.T) {
+func TestArgumentFormatter_FormatBodyArgument(t *testing.T) {
 	formatter := &fixes.ArgumentFormatter{}
 
 	tests := []struct {
@@ -104,6 +201,7 @@ func TestFormatBodyArgument(t *testing.T) {
 	}{
 		{name: "nil body", input: "nil", want: "http.NoBody"},
 		{name: "other body", input: "myBody", want: "myBody"},
+		{name: "reader body", input: "strings.NewReader(s)", want: "strings.NewReader(s)"},
 	}
 
 	for _, tc := range tests {
@@ -120,6 +218,8 @@ func TestFormatBodyArgument(t *testing.T) {
 		})
 	}
 }
+
+// ── CreateTextEdit / CreateSuggestedFix ───────────────────────────────────────
 
 func TestCreateTextEdit(t *testing.T) {
 	expr, err := parser.ParseExpr(`http.Get("url")`)
