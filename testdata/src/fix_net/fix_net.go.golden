@@ -1,0 +1,26 @@
+package fix_net
+
+import (
+	"context"
+	"net"
+	"time"
+)
+
+func _() {
+	ctx := context.Background()
+	_ = ctx
+
+	_, _ = (&net.Dialer{}).DialContext(context.Background(), "tcp", "localhost:8080")                   // want `net\.Dial must not be called. use \(\*net\.Dialer\)\.DialContext`
+	_, _ = (&net.Dialer{Timeout: 10 * time.Second}).DialContext(context.Background(), "tcp", "localhost:8080") // want `net\.DialTimeout must not be called. use \(\*net\.Dialer\)\.DialContext with \(\*net\.Dialer\)\.Timeout`
+	_, _ = (&net.ListenConfig{}).Listen(context.Background(), "tcp", ":8080")                          // want `net\.Listen must not be called. use \(\*net\.ListenConfig\)\.Listen`
+	_, _ = (&net.ListenConfig{}).ListenPacket(context.Background(), "udp", ":8080")                    // want `net\.ListenPacket must not be called. use \(\*net\.ListenConfig\)\.ListenPacket`
+	_, _ = (&net.Resolver{}).LookupCNAME(context.Background(), "example.com")                     // want `net\.LookupCNAME must not be called. use \(\*net\.Resolver\)\.LookupCNAME with a context`
+	_, _ = (&net.Resolver{}).LookupHost(context.Background(), "example.com")                      // want `net\.LookupHost must not be called. use \(\*net\.Resolver\)\.LookupHost with a context`
+	_, _ = (&net.Resolver{}).LookupIPAddr(context.Background(), "example.com")                        // want `net\.LookupIP must not be called. use \(\*net\.Resolver\)\.LookupIPAddr with a context`
+	_, _ = (&net.Resolver{}).LookupPort(context.Background(), "tcp", "http")                      // want `net\.LookupPort must not be called. use \(\*net\.Resolver\)\.LookupPort with a context`
+	_, _, _ = (&net.Resolver{}).LookupSRV(context.Background(), "http", "tcp", "example.com")    // want `net\.LookupSRV must not be called. use \(\*net\.Resolver\)\.LookupSRV with a context`
+	_, _ = (&net.Resolver{}).LookupMX(context.Background(), "example.com")                        // want `net\.LookupMX must not be called. use \(\*net\.Resolver\)\.LookupMX with a context`
+	_, _ = (&net.Resolver{}).LookupNS(context.Background(), "example.com")                        // want `net\.LookupNS must not be called. use \(\*net\.Resolver\)\.LookupNS with a context`
+	_, _ = (&net.Resolver{}).LookupTXT(context.Background(), "example.com")                       // want `net\.LookupTXT must not be called. use \(\*net\.Resolver\)\.LookupTXT with a context`
+	_, _ = (&net.Resolver{}).LookupAddr(context.Background(), "8.8.8.8")                          // want `net\.LookupAddr must not be called. use \(\*net\.Resolver\)\.LookupAddr with a context`
+}

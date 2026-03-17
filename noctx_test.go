@@ -26,3 +26,25 @@ func TestAnalyzer(t *testing.T) {
 		})
 	}
 }
+
+func TestSuggestedFixes(t *testing.T) {
+	testCases := []struct {
+		desc string
+	}{
+		{desc: "exec_cmd"},
+		{desc: "fix_http"},
+		{desc: "fix_alias"},
+		{desc: "fix_net"},
+		{desc: "fix_tls"},
+		{desc: "fix_http_methods"},
+		{desc: "fix_httptest"},
+		{desc: "fix_context_import"},
+	}
+
+	for _, test := range testCases {
+		t.Run(test.desc, func(t *testing.T) {
+			analysistest.RunWithSuggestedFixes(t, analysistest.TestData(), noctx.Analyzer, test.desc)
+		})
+	}
+}
+
