@@ -12,34 +12,26 @@ func _() {
 	_ = ctx
 	_ = strings.NewReader // needed by the PostForm suggested fix
 
-	_, _ = func() (*http.Response, error) {
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://example.com", http.NoBody)
 	if err != nil {
 		return nil, err
 	}
-	return http.DefaultClient.Do(req)
-}()                              // want `net/http\.Get must not be called. use net/http\.NewRequestWithContext and \(\*net/http.Client\)\.Do\(\*http.Request\)`
-	_, _ = func() (*http.Response, error) {
+	_, _ = http.DefaultClient.Do(req)                              // want `net/http\.Get must not be called. use net/http\.NewRequestWithContext and \(\*net/http.Client\)\.Do\(\*http.Request\)`
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodHead, "https://example.com", http.NoBody)
 	if err != nil {
 		return nil, err
 	}
-	return http.DefaultClient.Do(req)
-}()                             // want `net/http\.Head must not be called. use net/http\.NewRequestWithContext and \(\*net/http.Client\)\.Do\(\*http.Request\)`
-	_, _ = func() (*http.Response, error) {
+	_, _ = http.DefaultClient.Do(req)                             // want `net/http\.Head must not be called. use net/http\.NewRequestWithContext and \(\*net/http.Client\)\.Do\(\*http.Request\)`
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, "https://example.com", nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "text/plain")
-	return http.DefaultClient.Do(req)
-}()          // want `net/http\.Post must not be called. use net/http\.NewRequestWithContext and \(\*net/http.Client\)\.Do\(\*http.Request\)`
-	_, _ = func() (*http.Response, error) {
+	_, _ = http.DefaultClient.Do(req)          // want `net/http\.Post must not be called. use net/http\.NewRequestWithContext and \(\*net/http.Client\)\.Do\(\*http.Request\)`
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, "https://example.com", strings.NewReader(url.Values{"k": {"v"}}.Encode()))
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	return http.DefaultClient.Do(req)
-}() // want `net/http\.PostForm must not be called. use net/http\.NewRequestWithContext and \(\*net/http.Client\)\.Do\(\*http.Request\)`
+	_, _ = http.DefaultClient.Do(req) // want `net/http\.PostForm must not be called. use net/http\.NewRequestWithContext and \(\*net/http.Client\)\.Do\(\*http.Request\)`
 }

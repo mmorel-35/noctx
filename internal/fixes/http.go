@@ -35,69 +35,95 @@ func fixHTTPGet(pass *analysis.Pass, ce *ast.CallExpr, ctx string) *analysis.Sug
 	if len(ce.Args) != 1 {
 		return nil
 	}
+	stmt := findContainingStmt(pass.Files, ce.Pos())
+	if stmt == nil {
+		return nil
+	}
 	q := extractQualifier(ce)
 	url := arg(pass, ce, 0)
-	newText := fmt.Sprintf(`func() (*%sResponse, error) {
-	req, err := %sNewRequestWithContext(%s, %sMethodGet, %s, %sNoBody)
-	if err != nil {
-		return nil, err
+	lhs := stmtLHSText(pass, stmt)
+	op := stmtAssignOp(stmt)
+	newText := fmt.Sprintf(
+		"req, err := %sNewRequestWithContext(%s, %sMethodGet, %s, %sNoBody)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\t%s %s %sDefaultClient.Do(req)",
+		q, ctx, q, url, q, lhs, op, q)
+	return &analysis.SuggestedFix{
+		Message: fmt.Sprintf("Replace %sGet with %sNewRequestWithContext", q, q),
+		TextEdits: []analysis.TextEdit{
+			{Pos: stmt.Pos(), End: ce.End(), NewText: []byte(newText)},
+		},
 	}
-	return %sDefaultClient.Do(req)
-}()`, q, q, ctx, q, url, q, q)
-	return createFix(fmt.Sprintf("Replace %sGet with %sNewRequestWithContext", q, q), ce, newText)
 }
 
 func fixHTTPHead(pass *analysis.Pass, ce *ast.CallExpr, ctx string) *analysis.SuggestedFix {
 	if len(ce.Args) != 1 {
 		return nil
 	}
+	stmt := findContainingStmt(pass.Files, ce.Pos())
+	if stmt == nil {
+		return nil
+	}
 	q := extractQualifier(ce)
 	url := arg(pass, ce, 0)
-	newText := fmt.Sprintf(`func() (*%sResponse, error) {
-	req, err := %sNewRequestWithContext(%s, %sMethodHead, %s, %sNoBody)
-	if err != nil {
-		return nil, err
+	lhs := stmtLHSText(pass, stmt)
+	op := stmtAssignOp(stmt)
+	newText := fmt.Sprintf(
+		"req, err := %sNewRequestWithContext(%s, %sMethodHead, %s, %sNoBody)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\t%s %s %sDefaultClient.Do(req)",
+		q, ctx, q, url, q, lhs, op, q)
+	return &analysis.SuggestedFix{
+		Message: fmt.Sprintf("Replace %sHead with %sNewRequestWithContext", q, q),
+		TextEdits: []analysis.TextEdit{
+			{Pos: stmt.Pos(), End: ce.End(), NewText: []byte(newText)},
+		},
 	}
-	return %sDefaultClient.Do(req)
-}()`, q, q, ctx, q, url, q, q)
-	return createFix(fmt.Sprintf("Replace %sHead with %sNewRequestWithContext", q, q), ce, newText)
 }
 
 func fixHTTPPost(pass *analysis.Pass, ce *ast.CallExpr, ctx string) *analysis.SuggestedFix {
 	if len(ce.Args) != 3 {
 		return nil
 	}
+	stmt := findContainingStmt(pass.Files, ce.Pos())
+	if stmt == nil {
+		return nil
+	}
 	q := extractQualifier(ce)
 	url := arg(pass, ce, 0)
 	contentType := arg(pass, ce, 1)
 	body := arg(pass, ce, 2)
-	newText := fmt.Sprintf(`func() (*%sResponse, error) {
-	req, err := %sNewRequestWithContext(%s, %sMethodPost, %s, %s)
-	if err != nil {
-		return nil, err
+	lhs := stmtLHSText(pass, stmt)
+	op := stmtAssignOp(stmt)
+	newText := fmt.Sprintf(
+		"req, err := %sNewRequestWithContext(%s, %sMethodPost, %s, %s)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\treq.Header.Set(\"Content-Type\", %s)\n\t%s %s %sDefaultClient.Do(req)",
+		q, ctx, q, url, body, contentType, lhs, op, q)
+	return &analysis.SuggestedFix{
+		Message: fmt.Sprintf("Replace %sPost with %sNewRequestWithContext", q, q),
+		TextEdits: []analysis.TextEdit{
+			{Pos: stmt.Pos(), End: ce.End(), NewText: []byte(newText)},
+		},
 	}
-	req.Header.Set("Content-Type", %s)
-	return %sDefaultClient.Do(req)
-}()`, q, q, ctx, q, url, body, contentType, q)
-	return createFix(fmt.Sprintf("Replace %sPost with %sNewRequestWithContext", q, q), ce, newText)
 }
 
 func fixHTTPPostForm(pass *analysis.Pass, ce *ast.CallExpr, ctx string) *analysis.SuggestedFix {
 	if len(ce.Args) != 2 {
 		return nil
 	}
+	stmt := findContainingStmt(pass.Files, ce.Pos())
+	if stmt == nil {
+		return nil
+	}
 	q := extractQualifier(ce)
 	url := arg(pass, ce, 0)
 	data := arg(pass, ce, 1)
-	newText := fmt.Sprintf(`func() (*%sResponse, error) {
-	req, err := %sNewRequestWithContext(%s, %sMethodPost, %s, strings.NewReader(%s.Encode()))
-	if err != nil {
-		return nil, err
+	lhs := stmtLHSText(pass, stmt)
+	op := stmtAssignOp(stmt)
+	newText := fmt.Sprintf(
+		"req, err := %sNewRequestWithContext(%s, %sMethodPost, %s, strings.NewReader(%s.Encode()))\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\treq.Header.Set(\"Content-Type\", \"application/x-www-form-urlencoded\")\n\t%s %s %sDefaultClient.Do(req)",
+		q, ctx, q, url, data, lhs, op, q)
+	fix := &analysis.SuggestedFix{
+		Message: fmt.Sprintf("Replace %sPostForm with %sNewRequestWithContext", q, q),
+		TextEdits: []analysis.TextEdit{
+			{Pos: stmt.Pos(), End: ce.End(), NewText: []byte(newText)},
+		},
 	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	return %sDefaultClient.Do(req)
-}()`, q, q, ctx, q, url, data, q)
-	fix := createFix(fmt.Sprintf("Replace %sPostForm with %sNewRequestWithContext", q, q), ce, newText)
 	// The fix uses strings.NewReader; ensure "strings" is imported.
 	if edit := addImportEdit(pass, ce, "strings"); edit != nil {
 		fix.TextEdits = append(fix.TextEdits, *edit)

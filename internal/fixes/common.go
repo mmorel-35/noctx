@@ -304,8 +304,66 @@ func createFix(message string, ce *ast.CallExpr, newText string) *analysis.Sugge
 	return CreateSuggestedFix(message, ce, newText)
 }
 
-// findContainingFunc returns the innermost *ast.FuncDecl or *ast.FuncLit that
-// contains pos.
+// findContainingStmt returns the innermost *ast.AssignStmt or *ast.ExprStmt
+// that contains pos. It returns nil if no such statement is found.
+func findContainingStmt(files []*ast.File, pos token.Pos) ast.Stmt {
+	var result ast.Stmt
+	for _, file := range files {
+		if file.Pos() > pos || pos > file.End() {
+			continue
+		}
+		ast.Inspect(file, func(n ast.Node) bool {
+			if n == nil {
+				return false
+			}
+			if n.Pos() > pos || pos > n.End() {
+				return false
+			}
+			switch s := n.(type) {
+			case *ast.AssignStmt:
+				result = s
+			case *ast.ExprStmt:
+				result = s
+			}
+			return true
+		})
+		break
+	}
+	return result
+}
+
+// stmtLHSText returns the source text of the left-hand side of an assignment
+// statement as a comma-separated string. For non-assignment statements or nil,
+// it returns "_, _".
+func stmtLHSText(pass *analysis.Pass, stmt ast.Stmt) string {
+	assign, ok := stmt.(*ast.AssignStmt)
+	if !ok || len(assign.Lhs) == 0 {
+		return "_, _"
+	}
+	parts := make([]string, len(assign.Lhs))
+	for i, expr := range assign.Lhs {
+		s := nodeStr(pass.Fset, expr)
+		if s == "" {
+			s = "_"
+		}
+		parts[i] = s
+	}
+	return strings.Join(parts, ", ")
+}
+
+// stmtAssignOp returns ":=" for a short-variable declaration or "=" for plain
+// assignment or any other statement type (including ExprStmt and nil).
+func stmtAssignOp(stmt ast.Stmt) string {
+	assign, ok := stmt.(*ast.AssignStmt)
+	if !ok {
+		return "="
+	}
+	if assign.Tok == token.DEFINE {
+		return ":="
+	}
+	return "="
+}
+
 func findContainingFunc(files []*ast.File, pos token.Pos) ast.Node {
 	var result ast.Node
 	for _, file := range files {
