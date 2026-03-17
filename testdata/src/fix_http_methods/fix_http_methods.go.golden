@@ -14,23 +14,23 @@ func _() {
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://example.com", http.NoBody)
 	if err != nil {
-		return nil, err
+		_ = err
 	}
 	_, _ = http.DefaultClient.Do(req)                              // want `net/http\.Get must not be called. use net/http\.NewRequestWithContext and \(\*net/http.Client\)\.Do\(\*http.Request\)`
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodHead, "https://example.com", http.NoBody)
 	if err != nil {
-		return nil, err
+		_ = err
 	}
 	_, _ = http.DefaultClient.Do(req)                             // want `net/http\.Head must not be called. use net/http\.NewRequestWithContext and \(\*net/http.Client\)\.Do\(\*http.Request\)`
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, "https://example.com", nil)
 	if err != nil {
-		return nil, err
+		_ = err
 	}
 	req.Header.Set("Content-Type", "text/plain")
 	_, _ = http.DefaultClient.Do(req)          // want `net/http\.Post must not be called. use net/http\.NewRequestWithContext and \(\*net/http.Client\)\.Do\(\*http.Request\)`
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, "https://example.com", strings.NewReader(url.Values{"k": {"v"}}.Encode()))
 	if err != nil {
-		return nil, err
+		_ = err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	_, _ = http.DefaultClient.Do(req) // want `net/http\.PostForm must not be called. use net/http\.NewRequestWithContext and \(\*net/http.Client\)\.Do\(\*http.Request\)`

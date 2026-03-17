@@ -68,8 +68,12 @@ func Generate(pass *analysis.Pass, funcName string, ce *ast.CallExpr) *analysis.
 		return nil
 	}
 
-	// If the fix uses a context.* expression, ensure "context" is imported.
-	if strings.HasPrefix(ctx, "context.") {
+	// If the fix uses the "context" package (e.g. context.Background() or an
+	// aliased qualifier like ctx.Background()), ensure the import is present.
+	// addImportEdit returns nil when the import already exists so it is safe to
+	// call unconditionally when the ctx expression is a qualified call.
+	ctxQ := resolveImportLocalName(pass, ce, "context")
+	if ctxQ != "" && strings.HasPrefix(ctx, ctxQ+".") {
 		if edit := addImportEdit(pass, ce, "context"); edit != nil {
 			fix.TextEdits = append(fix.TextEdits, *edit)
 		}
@@ -128,8 +132,14 @@ func (cd *ContextDetector) DetectContext(pass *analysis.Pass, ce *ast.CallExpr) 
 		}
 	}
 
-	// 3. Fallback.
-	return "context.Background()"
+	// 3. Fallback: use <qualifier>.Background() where <qualifier> is whatever
+	//    name the file uses to refer to the "context" package (handles aliases
+	//    like ctx "context" or dot-imports of "context").
+	q := resolveImportLocalName(pass, ce, "context")
+	if q == "" {
+		return "Background()" // dot-import of "context"
+	}
+	return q + ".Background()"
 }
 
 // hasTestingImport reports whether the package under analysis imports "testing".
@@ -180,7 +190,7 @@ func (cd *ContextDetector) findTestingContext(pass *analysis.Pass, ce *ast.CallE
 type VariableAssignmentDetector struct{}
 
 // DetectAssignmentOperator returns ":=" if any of varNames are not yet declared
-// in the enclosing scope, and "=" if they are all already declared.
+// in the package-level scope, and "=" if they are all already declared.
 //
 // Note: this implementation uses the package-level scope as a simplified
 // approximation. Block-scoped variables declared within functions are not
@@ -362,6 +372,124 @@ func stmtAssignOp(stmt ast.Stmt) string {
 		return ":="
 	}
 	return "="
+}
+
+// isDirectCallInStmt reports whether ce is the direct (non-nested) expression
+// inside stmt. For an ExprStmt it checks stmt.X == ce. For an AssignStmt it
+// checks that the RHS has exactly one element and that element is ce. This is
+// used before emitting a multi-statement replacement so that we never corrupt
+// code where the call is nested inside a larger expression or assignment.
+func isDirectCallInStmt(stmt ast.Stmt, ce *ast.CallExpr) bool {
+	switch s := stmt.(type) {
+	case *ast.ExprStmt:
+		return s.X == ce
+	case *ast.AssignStmt:
+		return len(s.Rhs) == 1 && s.Rhs[0] == ce
+	}
+	return false
+}
+
+// buildErrReturn derives an appropriate error-return statement for the
+// enclosing function of ce. When the function returns at least one value
+// whose last type is error, it emits "return <zeros…>, err". When there are
+// no return values (or none end in error) it emits "_ = err" instead.
+func buildErrReturn(pass *analysis.Pass, ce *ast.CallExpr) string {
+	fn := findContainingFunc(pass.Files, ce.Pos())
+	var results *ast.FieldList
+	if fn != nil {
+		switch f := fn.(type) {
+		case *ast.FuncDecl:
+			if f.Type != nil {
+				results = f.Type.Results
+			}
+		case *ast.FuncLit:
+			if f.Type != nil {
+				results = f.Type.Results
+			}
+		}
+	}
+	if results == nil || results.NumFields() == 0 {
+		return "_ = err"
+	}
+	// Check whether the last return type is the builtin error interface.
+	lastField := results.List[len(results.List)-1]
+	if !isBuiltinErrorType(pass, lastField.Type) {
+		return "_ = err"
+	}
+	// Count total return values.
+	total := 0
+	for _, f := range results.List {
+		n := len(f.Names)
+		if n == 0 {
+			n = 1
+		}
+		total += n
+	}
+	if total == 1 {
+		return "return err"
+	}
+	// Multiple return values: use nil for all but the last (error).
+	parts := make([]string, total)
+	for i := range parts {
+		parts[i] = "nil"
+	}
+	parts[total-1] = "err"
+	return "return " + strings.Join(parts, ", ")
+}
+
+// isBuiltinErrorType reports whether the expression represents the predeclared
+// builtin error interface. It compares against the universe scope's error type
+// for a reliable match that is unaffected by string formatting.
+func isBuiltinErrorType(pass *analysis.Pass, expr ast.Expr) bool {
+	if pass.TypesInfo == nil {
+		return false
+	}
+	t := pass.TypesInfo.TypeOf(expr)
+	if t == nil {
+		return false
+	}
+	return types.Identical(t, types.Universe.Lookup("error").Type())
+}
+
+// resolveImportLocalName returns the identifier name used to refer to pkgPath
+// in the file that contains ce. If the package is imported under an explicit
+// alias that alias is returned. For a dot-import (". ") an empty string is
+// returned so callers can omit the qualifier. If the package is not imported
+// at all the default last path segment is returned (addImportEdit will add
+// the import using that name later).
+func resolveImportLocalName(pass *analysis.Pass, ce *ast.CallExpr, pkgPath string) string {
+	var file *ast.File
+	for _, f := range pass.Files {
+		if f.Pos() <= ce.Pos() && ce.Pos() <= f.End() {
+			file = f
+			break
+		}
+	}
+	if file == nil {
+		return lastPathSegment(pkgPath)
+	}
+	for _, imp := range file.Imports {
+		if strings.Trim(imp.Path.Value, `"`) != pkgPath {
+			continue
+		}
+		if imp.Name != nil {
+			if imp.Name.Name == "." {
+				return "" // dot-import: no qualifier needed
+			}
+			return imp.Name.Name
+		}
+		return lastPathSegment(pkgPath)
+	}
+	// Not yet imported; addImportEdit will add it with the default name.
+	return lastPathSegment(pkgPath)
+}
+
+// lastPathSegment returns the last "/" separated element of an import path.
+func lastPathSegment(pkgPath string) string {
+	if i := strings.LastIndex(pkgPath, "/"); i >= 0 {
+		return pkgPath[i+1:]
+	}
+	return pkgPath
 }
 
 func findContainingFunc(files []*ast.File, pos token.Pos) ast.Node {

@@ -158,7 +158,7 @@ func TestVariableAssignmentDetector_NilPkg(t *testing.T) {
 }
 
 func TestVariableAssignmentDetector_NoVarNames(t *testing.T) {
-	// With no var names to check, it should return "=" (all zero variables "found").
+	// Nil pkg always returns ":=" regardless of the number of var names.
 	detector := &fixes.VariableAssignmentDetector{}
 
 	expr, err := parser.ParseExpr(`f()`)
